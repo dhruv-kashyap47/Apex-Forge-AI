@@ -1331,7 +1331,6 @@ def reject_match(case_id: str) -> None:
     update_match_decision(case_id, "REJECT", "reviewer", "Rejected via UI")
 
 
-
 # ---------------------------------------------------------------------------
 # Demo Store Routing
 # ---------------------------------------------------------------------------

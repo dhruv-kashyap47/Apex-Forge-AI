@@ -215,9 +215,9 @@ def page_dashboard():
                                marker=dict(colors=colors, line=dict(color="#fff", width=2)),
                                textfont=dict(size=12)))
         fig.update_layout(**_chart_layout(height=220, showlegend=True,
-                          legend=dict(font=dict(size=11), bgcolor="rgba(0,0,0,0)"),
-                          annotations=[dict(text=f"<b>{sum(values):,}</b>", x=0.5, y=0.5,
-                                           font_size=16, showarrow=False)]))
+                                          legend=dict(font=dict(size=11), bgcolor="rgba(0,0,0,0)"),
+                                          annotations=[dict(text=f"<b>{sum(values):,}</b>", x=0.5, y=0.5,
+                                                            font_size=16, showarrow=False)]))
         st.plotly_chart(fig, width='stretch')
 
     with c2:
@@ -280,8 +280,8 @@ def page_dashboard():
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(_sec("ACTIVE LEARNING — REVIEWER FEEDBACK"), unsafe_allow_html=True)
     labels = _q("get_learning_labels")
-    merges  = sum(1 for l in labels if l.get("reviewer_label") == 1)
-    rejects = sum(1 for l in labels if l.get("reviewer_label") == 0)
+    merges  = sum(1 for lbl in labels if lbl.get("reviewer_label") == 1)
+    rejects = sum(1 for lbl in labels if lbl.get("reviewer_label") == 0)
     a1, a2, a3 = st.columns(3)
     a1.metric("Reviewer Merges", merges)
     a2.metric("Reviewer Splits", rejects)
@@ -400,8 +400,8 @@ def page_entity_explorer():
                                 hovertemplate=f"<b>{etype}</b><br>%{{x|%Y-%m-%d}}<extra></extra>"
                             ))
                     fig.update_layout(**_chart_layout(height=180,
-                                     xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="rgba(0,0,0,0)"),
-                                     legend=dict(orientation="h", yanchor="bottom", y=1, bgcolor="rgba(0,0,0,0)", font=dict(size=10))))
+                                                      xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                                                      legend=dict(orientation="h", yanchor="bottom", y=1, bgcolor="rgba(0,0,0,0)", font=dict(size=10))))
                     st.plotly_chart(fig, width='stretch')
 
                     if survival_trend:
@@ -414,8 +414,8 @@ def page_entity_explorer():
                                 marker=dict(size=5), fillcolor="rgba(217,119,6,0.08)"
                             ))
                             fig2.update_layout(**_chart_layout(height=110,
-                                              xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="#e2e8f0", range=[0,1.05]),
-                                              title=dict(text="Vitality Signal Over Time", font=dict(size=11, color="#64748b"))))
+                                                               xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="#e2e8f0", range=[0,1.05]),
+                                                               title=dict(text="Vitality Signal Over Time", font=dict(size=11, color="#64748b"))))
                             st.plotly_chart(fig2, width='stretch')
                 else:
                     st.caption("No activity events.")
@@ -559,7 +559,8 @@ def page_graph():
 
 
 def _graph_plotly_fallback(edges):
-    import math, random
+    import math
+    import random
     nodes: dict = {}
     for e in edges:
         for nid_k, name_k, dept_k in [("record_a_id","name_a","dept_a"),("record_b_id","name_b","dept_b")]:
@@ -680,7 +681,7 @@ def page_query():
                     fig = px.pie(vc, names="Status", values="Count", hole=0.5,
                                  color="Status", color_discrete_map={"ACTIVE":"#059669","DORMANT":"#d97706","CLOSED":"#dc2626","UNKNOWN":"#94a3b8"})
                     fig.update_layout(**_chart_layout(height=200, showlegend=True,
-                                     legend=dict(font=dict(size=10), bgcolor="rgba(0,0,0,0)")))
+                                                      legend=dict(font=dict(size=10), bgcolor="rgba(0,0,0,0)")))
                     st.plotly_chart(fig, width='stretch')
 
             ec1, ec2 = st.columns(2)
@@ -700,7 +701,7 @@ def _build_sql(p: dict) -> str:
     if p.get("dept"):         lines.append(f"  AND  departments ? '{p['dept']}'")
     if p.get("sector"):       lines.append(f"  AND  sector ILIKE '%{p['sector']}%'")
     if p.get("no_inspection_months"):
-        lines.append(f"  AND  NOT EXISTS (SELECT 1 FROM status_events WHERE ubid_id=v.ubid_id AND event_type='INSPECTION'")
+        lines.append("  AND  NOT EXISTS (SELECT 1 FROM status_events WHERE ubid_id=v.ubid_id AND event_type='INSPECTION'")
         lines.append(f"         AND event_date > NOW() - INTERVAL '{p['no_inspection_months']} months')")
     lines.append(f"ORDER  BY latest_activity_at ASC NULLS FIRST LIMIT {p.get('limit',50)};")
     return "\n".join(lines)
@@ -775,13 +776,15 @@ def page_review():
                 _q("approve_match", case_id)
                 _q("log_audit","REVIEWER_DECISION", f"Merged case {case_id[:8]}",
                    actor=st.session_state.get("reviewer_identity","system"), confidence=conf)
-                st.success("Merged"); st.rerun()
+                st.success("Merged")
+                st.rerun()
             if b2.button("❌ Split", key=f"spl_{case_id}"):
                 _q("reject_match", case_id)
                 _q("log_audit","REVIEWER_DECISION", f"Rejected case {case_id[:8]}",
                    actor=st.session_state.get("reviewer_identity","system"), confidence=conf)
-                st.error("Split"); st.rerun()
-            note = b3.text_input("Note", key=f"note_{case_id}", placeholder="Optional…")
+                st.error("Split")
+                st.rerun()
+            b3.text_input("Note", key=f"note_{case_id}", placeholder="Optional…")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -809,9 +812,9 @@ def page_audit():
 
     logs = _q("get_audit_trail", limit=limit)
     if evt_filter:
-        logs = [l for l in logs if l.get("event_type") in evt_filter]
+        logs = [entry for entry in logs if entry.get("event_type") in evt_filter]
     if actor_filter.strip():
-        logs = [l for l in logs if actor_filter.strip().lower() in (l.get("actor") or "").lower()]
+        logs = [entry for entry in logs if actor_filter.strip().lower() in (entry.get("actor") or "").lower()]
 
     if not logs:
         st.info("No events match.")
@@ -843,7 +846,7 @@ def page_audit():
                 f' <span style="color:var(--muted);font-size:0.78rem">{H(ts)} · {H(str(actor))}{conf_s}{ubid_s}</span>'
                 f'<div style="font-size:0.88rem">{H(act)}</div>' +
                 (f'<div style="font-size:0.8rem;color:var(--muted);font-style:italic">Note: {H(str(just))}</div>' if just else "") +
-                f'</div></div>',
+                '</div></div>',
                 unsafe_allow_html=True
             )
     else:
@@ -1125,4 +1128,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()
