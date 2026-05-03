@@ -10,17 +10,25 @@ class _Logger:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
         self._logger = logging.getLogger("apexforge")
 
+    def _format(self, message: str, *args, **kwargs) -> str:
+        if args or kwargs:
+            try:
+                return message.format(*args, **kwargs)
+            except Exception:
+                pass
+        return message
+
     def info(self, message: str, *args, **kwargs) -> None:
-        self._logger.info(message, *args, **kwargs)
+        self._logger.info(self._format(message, *args, **kwargs))
 
     def warning(self, message: str, *args, **kwargs) -> None:
-        self._logger.warning(message, *args, **kwargs)
+        self._logger.warning(self._format(message, *args, **kwargs))
 
     def error(self, message: str, *args, **kwargs) -> None:
-        self._logger.error(message, *args, **kwargs)
+        self._logger.error(self._format(message, *args, **kwargs))
 
     def exception(self, message: str, *args, **kwargs) -> None:
-        self._logger.exception(message, *args, **kwargs)
+        self._logger.exception(self._format(message, *args, **kwargs))
 
 
 logger = _Logger()

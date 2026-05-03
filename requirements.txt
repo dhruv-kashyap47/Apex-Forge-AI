@@ -5,42 +5,18 @@
 
 # ── Streamlit UI ──────────────────────────────
 streamlit==1.35.0
-streamlit-aggrid==0.3.4
-streamlit-option-menu==0.3.12
 
 # ── Database ──────────────────────────────────
 psycopg[binary]==3.1.19
 pgvector==0.2.5
-sqlalchemy==2.0.30
 
-# ── ML / Embeddings ───────────────────────────
-sentence-transformers==3.0.1
-torch==2.3.1
-scikit-learn==1.5.0
+# ── Data Processing & ML ──────────────────────
+pandas==2.2.2
 numpy==1.26.4
-scipy==1.13.1
-
-# ── NLP / Phonetics ───────────────────────────
-jellyfish==1.0.3
-rapidfuzz==3.9.3
-unidecode==1.3.8
 
 # ── Graph Visualisation ───────────────────────
 pyvis==0.3.2
 plotly==5.22.0
-networkx==3.3
-
-# ── Data Generation ───────────────────────────
-faker==25.9.1
-pandas==2.2.2
-openpyxl==3.1.5
-
-# ── Explainability ────────────────────────────
-shap==0.45.1
 
 # ── Utilities ─────────────────────────────────
-python-dotenv==1.0.1
-pydantic==2.7.4
-loguru==0.7.2
-rich==13.7.1
-tqdm==4.66.4
+openpyxl==3.1.5

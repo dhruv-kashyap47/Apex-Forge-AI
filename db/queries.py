@@ -1,24 +1,73 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
 import uuid
 
-try:
-    from psycopg.types.json import Jsonb
-except ImportError as exc:  # pragma: no cover - surfaced at runtime
-    Jsonb = None
-    _JSON_IMPORT_ERROR = exc
+# ---------------------------------------------------------------------------
+# Demo-mode detection: use in-memory store when USE_DEMO_STORE=true or
+# when PostgreSQL driver (psycopg) is not installed.
+# ---------------------------------------------------------------------------
 
-from db.connection import execute, execute_one, health_check, init_schema
+_DEMO_MODE: bool = False
+_JSON_IMPORT_ERROR: Exception | None = None
+Jsonb = None
+
+try:
+    from psycopg.types.json import Jsonb as _Jsonb
+    Jsonb = _Jsonb
+except ImportError as exc:  # pragma: no cover
+    _JSON_IMPORT_ERROR = exc
+    _DEMO_MODE = True  # no driver → force demo
+
+if os.getenv("USE_DEMO_STORE", "").strip().lower() in ("true", "1", "yes"):
+    _DEMO_MODE = True
+
+_pg_execute = None
+_pg_execute_one = None
+_pg_health_check = None
+_pg_init_schema = None
+_get_store = None
+
+if _DEMO_MODE:
+    from db.demo_store import get_store as _get_store
+else:
+    try:
+        from db.connection import execute as _pg_execute, execute_one as _pg_execute_one, health_check as _pg_health_check, init_schema as _pg_init_schema
+    except Exception:
+        _DEMO_MODE = True
+        from db.demo_store import get_store as _get_store
+
+
+# ---------------------------------------------------------------------------
+# Internal execute helpers — route to demo store or PostgreSQL automatically.
+# All SQL-calling functions below use these.
+# ---------------------------------------------------------------------------
+
+def execute(sql: str, params: tuple | dict | None = None) -> list[dict]:
+    """Execute SQL returning all rows. Routes to demo store in demo mode."""
+    if _DEMO_MODE:
+        return _get_store().execute_sql(sql, params)
+    return _pg_execute(sql, params)
+
+
+def execute_one(sql: str, params: tuple | dict | None = None) -> dict | None:
+    """Execute SQL returning one row. Routes to demo store in demo mode."""
+    if _DEMO_MODE:
+        rows = _get_store().execute_sql(sql, params)
+        return rows[0] if rows else None
+    return _pg_execute_one(sql, params)
 
 
 def is_demo_mode() -> bool:
-    return False
+    return _DEMO_MODE
 
 
 def _json(value: Any):
+    if _DEMO_MODE:
+        return value  # no psycopg wrapper needed in demo mode
     if Jsonb is None:
         raise ModuleNotFoundError("A PostgreSQL driver is required. Install 'psycopg[binary]'.") from _JSON_IMPORT_ERROR
     return Jsonb(value)
@@ -31,8 +80,9 @@ def _uuid_text(value: Any) -> str | None:
 
 
 def _ensure_schema() -> None:
-    # Safe to call repeatedly; CREATE IF NOT EXISTS guards schema bootstrap.
-    init_schema()
+    if _DEMO_MODE:
+        return
+    _pg_init_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -40,11 +90,16 @@ def _ensure_schema() -> None:
 # ---------------------------------------------------------------------------
 
 def bootstrap() -> None:
+    if _DEMO_MODE:
+        _get_store()  # triggers seed
+        return
     _ensure_schema()
 
 
 def ping() -> bool:
-    return health_check()
+    if _DEMO_MODE:
+        return True
+    return _pg_health_check()
 
 
 # ---------------------------------------------------------------------------
@@ -1244,3 +1299,44 @@ def create_entity(entity: dict) -> str:
 
 def link_record_to_entity(ubid: str, record_id: str, confidence: float, linked_by: str = "system") -> None:
     link_record_to_ubid(ubid, record_id, confidence, linked_by)
+
+
+# ---------------------------------------------------------------------------
+# Frontend compatibility — approve/reject match shortcuts
+# ---------------------------------------------------------------------------
+
+def approve_match(case_id: str) -> None:
+    """Approve (merge) a review case."""
+    if _DEMO_MODE:
+        store = _get_store()
+        try:
+            mid = int(case_id)
+        except (ValueError, TypeError):
+            mid = hash(case_id) % 1_000_000
+        store.update_match_decision(mid, "MERGED", "reviewer", "Approved via UI")
+        return
+    update_match_decision(case_id, "MERGED", "reviewer", "Approved via UI")
+
+
+def reject_match(case_id: str) -> None:
+    """Reject (split) a review case."""
+    if _DEMO_MODE:
+        store = _get_store()
+        try:
+            mid = int(case_id)
+        except (ValueError, TypeError):
+            mid = hash(case_id) % 1_000_000
+        store.update_match_decision(mid, "REJECTED", "reviewer", "Rejected via UI")
+        return
+    update_match_decision(case_id, "REJECT", "reviewer", "Rejected via UI")
+
+
+
+# ---------------------------------------------------------------------------
+# Demo Store Routing
+# ---------------------------------------------------------------------------
+if _DEMO_MODE:
+    store = _get_store()
+    for name in dir(store):
+        if not name.startswith('_') and callable(getattr(store, name)):
+            globals()[name] = getattr(store, name)
