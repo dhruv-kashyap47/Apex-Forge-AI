@@ -7,14 +7,13 @@ The jury favourite: "Show dormant factories in Bangalore over 18 months with no 
 
 from __future__ import annotations
 
-import io
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from db import queries
-from ui.styles import section_title, vitality_badge
+from ui.styles import section_title
 
 
 # ── Pre-built demo queries ─────────────────────────────────────────────────────
@@ -174,11 +173,11 @@ def _build_sql_preview(params: dict) -> str:
         lines.append(f"  AND  sector ILIKE '%{params['sector']}%'")
     if params.get("no_inspection_months"):
         lines.append(f"  AND  NOT EXISTS (    -- No inspection in last {params['no_inspection_months']} months")
-        lines.append(f"         SELECT 1 FROM status_events se")
-        lines.append(f"         WHERE se.ubid_id = v.ubid_id AND se.event_type = 'INSPECTION'")
+        lines.append("         SELECT 1 FROM status_events se")
+        lines.append("         WHERE se.ubid_id = v.ubid_id AND se.event_type = 'INSPECTION'")
         lines.append(f"           AND se.event_date > NOW() - INTERVAL '{params['no_inspection_months']} months'")
-        lines.append(f"       )")
-    lines.append(f"ORDER  BY latest_activity_at ASC NULLS FIRST")
+        lines.append("       )")
+    lines.append("ORDER  BY latest_activity_at ASC NULLS FIRST")
     lines.append(f"LIMIT  {params.get('limit', 50)};")
     return "\n".join(lines)
 

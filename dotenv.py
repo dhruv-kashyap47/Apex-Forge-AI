@@ -46,4 +46,3 @@ def load_dotenv(dotenv_path: str | os.PathLike[str] | None = None, override: boo
             os.environ[key] = value
         loaded = True
     return loaded
-

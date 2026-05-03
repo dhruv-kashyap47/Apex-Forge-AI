@@ -11,7 +11,6 @@ import streamlit as st
 from html import escape as html_escape
 
 from db import queries
-from ui.styles import section_title
 
 
 EVENT_ICONS = {
@@ -82,10 +81,10 @@ def render() -> None:
 
     # Apply filters
     if evt_filter:
-        logs = [l for l in logs if l.get("event_type") in evt_filter]
+        logs = [log_item for log_item in logs if log_item.get("event_type") in evt_filter]
     if actor_filter.strip():
-        logs = [l for l in logs if actor_filter.strip().lower() in
-                (l.get("actor") or "").lower()]
+        logs = [log_item for log_item in logs if actor_filter.strip().lower() in
+                (log_item.get("actor") or "").lower()]
 
     if not logs:
         st.info("No audit events match the current filters.")

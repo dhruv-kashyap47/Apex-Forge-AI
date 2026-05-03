@@ -17,4 +17,3 @@ class Faker:
     def company(self) -> str:
         names = ["Apex Industries", "Forge Tech", "Karnataka Traders", "Bengaluru Works"]
         return self._rng.choice(names)
-

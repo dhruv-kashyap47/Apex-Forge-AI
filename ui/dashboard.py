@@ -5,7 +5,6 @@ The command-center view: live stats, vitality breakdown, entity resolution metri
 
 from __future__ import annotations
 
-from datetime import datetime
 from html import escape as html_escape
 
 import pandas as pd
@@ -14,7 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from db import queries
-from ui.styles import stat_card, vitality_badge, confidence_bar, section_title
+from ui.styles import stat_card, section_title
 
 
 def render() -> None:
@@ -242,8 +241,8 @@ def _active_learning_panel() -> None:
     st.markdown(section_title("ACTIVE LEARNING LOOP — SOVEREIGN FEEDBACK"), unsafe_allow_html=True)
 
     labels = queries.get_learning_labels()
-    merges  = [l for l in labels if l.get("reviewer_label") == 1]
-    rejects = [l for l in labels if l.get("reviewer_label") == 0]
+    merges  = [lbl for lbl in labels if lbl.get("reviewer_label") == 1]
+    rejects = [lbl for lbl in labels if lbl.get("reviewer_label") == 0]
 
     c1, c2, c3 = st.columns(3)
     with c1:

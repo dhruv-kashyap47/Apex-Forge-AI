@@ -129,4 +129,3 @@ def normalize_row(row: dict[str, Any], source_map: dict[str, str | None], depart
             "record_hash": record_hash(department_code, source_key, business_name or record_key),
         },
     )
-

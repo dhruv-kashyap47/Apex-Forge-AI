@@ -31,7 +31,7 @@ from loguru import logger
 from tqdm import tqdm
 from unidecode import unidecode
 
-from db.connection import init_schema, health_check, get_pool
+from db.connection import init_schema, health_check
 from db import queries
 
 fake = Faker("en_IN")
@@ -352,7 +352,8 @@ def run_seed() -> None:
         if health_check():
             break
         logger.info(f"Waiting for PostgreSQL… ({attempt+1}/10)")
-        import time; time.sleep(3)
+        import time
+        time.sleep(3)
     else:
         logger.error("Could not connect to PostgreSQL. Exiting.")
         sys.exit(1)
@@ -433,7 +434,7 @@ def run_seed() -> None:
     logger.info("✅  Seed complete! ApexForge AI is ready.")
     logger.info(f"    Records:   {len(records)}")
     logger.info(f"    Events:    {len(events)}")
-    logger.info(f"    Dashboard: http://localhost:8501")
+    logger.info("    Dashboard: http://localhost:8501")
     logger.info("━" * 60)
 
 

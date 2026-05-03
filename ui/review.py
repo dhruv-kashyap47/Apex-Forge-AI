@@ -14,10 +14,7 @@ import streamlit as st
 
 from db import queries
 from engine.explainability import generate_explanation, compute_shap_values
-from ui.styles import (
-    section_title, confidence_bar, vitality_badge,
-    ubid_badge, timeline_dot_class
-)
+from ui.styles import section_title, confidence_bar
 
 
 def render() -> None:
@@ -191,7 +188,6 @@ def render() -> None:
 
 def _render_record_card(match: dict, side: str) -> None:
     """Render one record card in the side-by-side view."""
-    prefix  = f"_{side}_" if side == "a" else f"_b_"  # actually field suffixes
     name    = match.get(f"name_{side}", "—")
     dept    = match.get(f"dept_{side}", "—")
     pan     = match.get(f"pan_{side}", "—") or "—"
@@ -205,7 +201,6 @@ def _render_record_card(match: dict, side: str) -> None:
     other_side = "b" if side == "a" else "a"
     pan_other  = match.get(f"pan_{other_side}", "")   or ""
     pin_other  = match.get(f"pin_{other_side}", "")   or ""
-    name_other = match.get(f"name_{other_side}", "")  or ""
 
     pan_class  = "field-value highlight" if pan == pan_other and pan != "—" else \
                  ("field-value field-diff" if pan_other and pan != pan_other else "field-value")

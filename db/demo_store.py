@@ -14,7 +14,6 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
-from typing import Any
 
 
 NOW = datetime.now(timezone.utc)

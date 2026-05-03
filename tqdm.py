@@ -9,4 +9,3 @@ T = TypeVar("T")
 
 def tqdm(iterable: Iterable[T], *_, **__) -> Iterator[T]:
     return iter(iterable)
-

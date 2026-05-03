@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -58,7 +57,7 @@ def render() -> None:
         conf_min = st.slider("Min confidence:", 0.0, 1.0, 0.65, 0.05, key="graph_conf")
     with c3:
         st.markdown("<br>", unsafe_allow_html=True)
-        refresh = st.button("🔄 Refresh", key="graph_refresh")
+        st.button("🔄 Refresh", key="graph_refresh")
 
     # ── Load edges ────────────────────────────────────────────────────────
     edges = queries.get_all_match_edges(status_filter)
@@ -173,7 +172,8 @@ def render() -> None:
 def _render_plotly_fallback(edges: list[dict]) -> None:
     """Plotly scatter fallback if PyVis unavailable."""
     import plotly.graph_objects as go
-    import random, math
+    import random
+    import math
 
     nodes: dict[str, dict] = {}
     for e in edges:

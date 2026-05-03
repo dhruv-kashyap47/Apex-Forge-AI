@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 
 def _pct(v: float) -> str:
     return f"{round(v * 100)}%"
@@ -132,7 +130,7 @@ def explain_vitality(signals: dict, status: str, score: float, pulse: int) -> di
     elif ev12 > 0:
         reasons.append(f"{ev12} event(s) in the last 12 months.")
     elif ev18 > 0:
-        concerns.append(f"Last activity was 6-18 months ago.")
+        concerns.append("Last activity was 6-18 months ago.")
     else:
         concerns.append("No recent activity detected.")
     if last:
@@ -154,4 +152,3 @@ def explain_vitality(signals: dict, status: str, score: float, pulse: int) -> di
         "concerns": concerns,
         "model_note": "Temporal activity analysis over status events.",
     }
-

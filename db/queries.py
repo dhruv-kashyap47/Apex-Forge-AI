@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
-import json
-import os
 import uuid
 
 try:
@@ -13,7 +11,7 @@ except ImportError as exc:  # pragma: no cover - surfaced at runtime
     Jsonb = None
     _JSON_IMPORT_ERROR = exc
 
-from db.connection import execute, execute_one, execute_many, health_check, init_schema
+from db.connection import execute, execute_one, health_check, init_schema
 
 
 def is_demo_mode() -> bool:

@@ -28,4 +28,3 @@ def parse_upload(file_obj: Any, filename: str) -> pd.DataFrame:
         else:
             payload = [payload]
     return pd.DataFrame(payload)
-

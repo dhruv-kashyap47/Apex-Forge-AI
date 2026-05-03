@@ -10,4 +10,3 @@ def unidecode(text: str) -> str:
         return ""
     normalized = unicodedata.normalize("NFKD", str(text))
     return normalized.encode("ascii", "ignore").decode("ascii")
-

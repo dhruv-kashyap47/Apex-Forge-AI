@@ -102,4 +102,3 @@ except Exception as exc:
     logger.exception("Page render error")
     st.error(f"An error occurred: {exc}")
     st.exception(exc)
-

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 ALIASES = {
     "business_name": {"business_name", "name", "trade_name", "entity_name", "company_name"},
     "pan": {"pan", "pan_no", "pan_number"},
@@ -35,4 +33,3 @@ def validate_required(mapping: dict[str, str | None], required: list[str] | None
     required = required or ["business_name"]
     missing = [field for field in required if not mapping.get(field)]
     return missing
-

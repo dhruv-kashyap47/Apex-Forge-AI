@@ -15,6 +15,7 @@ except ImportError as exc:  # pragma: no cover - surfaced at runtime
 
 from loguru import logger
 
+
 def _database_url() -> str:
     url = os.getenv("DATABASE_URL", "").strip()
     if not url:

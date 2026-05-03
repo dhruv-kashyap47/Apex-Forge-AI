@@ -24,4 +24,3 @@ class _Logger:
 
 
 logger = _Logger()
-

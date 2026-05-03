@@ -5,7 +5,6 @@ Search, browse, and deep-dive into any UBID with full linked records + vitality 
 
 from __future__ import annotations
 
-import json
 from html import escape as html_escape
 
 import plotly.graph_objects as go
@@ -14,10 +13,7 @@ import streamlit as st
 from db import queries
 from engine.vitality import compute_vitality, survival_trend
 from engine.explainability import explain_vitality
-from ui.styles import (
-    section_title, vitality_badge, confidence_bar,
-    ubid_badge, stat_card, timeline_dot_class
-)
+from ui.styles import vitality_badge, ubid_badge
 
 
 def render() -> None:
@@ -302,7 +298,7 @@ def _render_entity_audit(ubid: str) -> None:
     for log in logs:
         ts   = str(log.get("created_at") or "")[:19]
         act  = log.get("action", "")
-        actor= log.get("actor", "system")
+        actor = log.get("actor", "system")
         evt  = log.get("event_type", "")
         conf = log.get("confidence")
         icon = {"ENTITY_CREATED": "🔗", "VITALITY_UPDATED": "💡",
