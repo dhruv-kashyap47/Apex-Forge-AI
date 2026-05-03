@@ -26,9 +26,10 @@ DEPT_COLORS = {
 }
 
 EDGE_COLORS = {
-    "AUTO_LINKED": "#10b981",
-    "MERGED":      "#10b981",
-    "REVIEW":      "#f59e0b",
+    "AUTO_MERGED": "#10b981",
+    "APPROVED":    "#10b981",
+    "IN_REVIEW":   "#f59e0b",
+    "PENDING":     "#f59e0b",
     "REJECTED":    "#f43f5e",
 }
 
@@ -49,8 +50,8 @@ def render() -> None:
     c1, c2, c3 = st.columns([2, 2, 1])
     with c1:
         status_filter = st.multiselect(
-            "Show edges:", ["AUTO_LINKED", "MERGED", "REVIEW"],
-            default=["AUTO_LINKED", "MERGED"],
+            "Show edges:", ["AUTO_MERGED", "APPROVED", "IN_REVIEW", "REJECTED"],
+            default=["AUTO_MERGED", "APPROVED", "IN_REVIEW"],
             key="graph_status",
         )
     with c2:
@@ -229,4 +230,4 @@ def _render_plotly_fallback(edges: list[dict]) -> None:
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         legend=dict(bgcolor="rgba(0,0,0,0)"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")

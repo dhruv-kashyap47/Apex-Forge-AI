@@ -158,7 +158,7 @@ def _render_table(logs: list[dict]) -> None:
             lambda x: str(x)[:12] + "…" if x else "—"
         )
 
-    st.dataframe(df, use_container_width=True, height=500)
+    st.dataframe(df, width="stretch", height=500)
 
     # Export
     csv = pd.DataFrame(logs).to_csv(index=False).encode("utf-8")

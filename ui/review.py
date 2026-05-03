@@ -308,7 +308,7 @@ def _render_shap_chart(shap_vals: list[dict]) -> None:
         yaxis=dict(gridcolor="rgba(0,0,0,0)"),
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _submit_decision(match_id: int, decision: str, reviewer: str, note: str,
@@ -335,6 +335,10 @@ def _submit_decision(match_id: int, decision: str, reviewer: str, note: str,
         ubid = create_entity(entity)
         link_record_to_entity(ubid, str(match_obj["record_a_id"]), entity["confidence_score"], reviewer)
         link_record_to_entity(ubid, str(match_obj["record_b_id"]), entity["confidence_score"], reviewer)
+        queries.execute(
+            "UPDATE match_edges SET ubid_id = %s WHERE match_edge_id = %s",
+            (ubid, match_id),
+        )
 
     queries.log_audit(
         "REVIEWER_DECISION",

@@ -45,7 +45,6 @@ def collect_findings() -> list[SecurityFinding]:
     secret_key = os.getenv("APP_SECRET_KEY")
     app_access_code = os.getenv("APP_ACCESS_CODE")
     postgres_password = os.getenv("POSTGRES_PASSWORD")
-    use_demo_store = os.getenv("USE_DEMO_STORE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
     if is_production():
         if _is_placeholder(secret_key) or len(secret_key or "") < 32:
@@ -61,13 +60,6 @@ def collect_findings() -> list[SecurityFinding]:
                 "Weak POSTGRES_PASSWORD",
                 "Production mode should not use a default database password.",
                 "Set POSTGRES_PASSWORD to a unique long password in the deployment environment.",
-            ))
-        if use_demo_store:
-            findings.append(SecurityFinding(
-                "warning",
-                "Demo store enabled in production",
-                "The app is currently using the in-memory demo datastore.",
-                "Set USE_DEMO_STORE=false only after a real backend is configured.",
             ))
         if not app_access_code:
             findings.append(SecurityFinding(
@@ -163,4 +155,3 @@ def fail_if_critical(findings: Iterable[SecurityFinding]) -> None:
         for finding in critical:
             st.markdown(f"- {finding.title}: {finding.detail}")
         st.stop()
-

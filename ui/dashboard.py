@@ -110,7 +110,7 @@ def _vitality_donut(stats: dict) -> None:
             x=0.5, y=0.5, font_size=16, font_color="#f1f5f9", showarrow=False
         )]
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _sector_bar() -> None:
@@ -131,7 +131,7 @@ def _sector_bar() -> None:
         xaxis=dict(gridcolor="#1e2e52"),
         yaxis=dict(gridcolor="rgba(0,0,0,0)"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _pin_heatmap() -> None:
@@ -172,7 +172,7 @@ def _pin_heatmap() -> None:
         xaxis=dict(gridcolor="#1e2e52"),
         yaxis=dict(gridcolor="#1e2e52"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _resolution_metrics(stats: dict) -> None:
@@ -283,7 +283,7 @@ def _active_learning_panel() -> None:
             xaxis=dict(gridcolor="#1e2e52"),
             yaxis=dict(gridcolor="#1e2e52"),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.caption("Make reviewer decisions to populate the active learning chart.")
 
@@ -291,16 +291,15 @@ def _active_learning_panel() -> None:
 def _show_seed_instructions() -> None:
     st.markdown("""
     <div class="gv-card">
-      <div class="gv-section-title">HOW TO SEED DATA</div>
+      <div class="gv-section-title">SYSTEM READY STATE</div>
       <pre style="color:#94a3b8;font-size:0.85rem">
-# Demo mode
-The app now ships with an in-memory demo dataset.
-Just run:
-streamlit run app.py
+No registry data is loaded yet.
 
-# Optional
-If you later connect PostgreSQL, the same UI will use the database-backed
-queries without changing the front-end code.
+1. Open "Upload & Schema Mapping"
+2. Stage a CSV or JSON export
+3. Open "Processing Progress" to run matching and UBID assignment
+
+If data exists but the dashboard is blank, verify DATABASE_URL and SSL connectivity.
       </pre>
     </div>
     """, unsafe_allow_html=True)

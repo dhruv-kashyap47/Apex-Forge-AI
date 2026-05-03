@@ -160,25 +160,25 @@ def render() -> None:
 
 
 def _build_sql_preview(params: dict) -> str:
-    lines = ["SELECT ubid, canonical_name, pan, pin_code, sector,"]
-    lines.append("       vitality_status, pulse_score, record_count, last_activity_at")
-    lines.append("FROM   entities e")
-    lines.append("WHERE  e.is_active = TRUE")
+    lines = ["SELECT ubid_id, ubid_code, canonical_name, normalized_pan, normalized_pin, sector,"]
+    lines.append("       current_status, member_count, record_count, latest_activity_at")
+    lines.append("FROM   v_ubid_registry v")
+    lines.append("WHERE  1 = 1")
     if params.get("vitality"):
-        lines.append(f"  AND  vitality_status = '{params['vitality']}'")
+        lines.append(f"  AND  current_status = '{params['vitality']}'")
     if params.get("pin_code"):
-        lines.append(f"  AND  pin_code = '{params['pin_code']}'")
+        lines.append(f"  AND  normalized_pin = '{params['pin_code']}'")
     if params.get("dept"):
-        lines.append(f"  AND  '{params['dept']}' = ANY(departments)")
+        lines.append(f"  AND  summary->'departments' ? '{params['dept']}'")
     if params.get("sector"):
         lines.append(f"  AND  sector ILIKE '%{params['sector']}%'")
     if params.get("no_inspection_months"):
         lines.append(f"  AND  NOT EXISTS (    -- No inspection in last {params['no_inspection_months']} months")
-        lines.append(f"         SELECT 1 FROM activity_events ae")
-        lines.append(f"         WHERE ae.ubid = e.ubid AND ae.event_type = 'INSPECTION'")
-        lines.append(f"           AND ae.event_date > NOW() - INTERVAL '{params['no_inspection_months']} months'")
+        lines.append(f"         SELECT 1 FROM status_events se")
+        lines.append(f"         WHERE se.ubid_id = v.ubid_id AND se.event_type = 'INSPECTION'")
+        lines.append(f"           AND se.event_date > NOW() - INTERVAL '{params['no_inspection_months']} months'")
         lines.append(f"       )")
-    lines.append(f"ORDER  BY pulse_score ASC, last_activity_at ASC NULLS FIRST")
+    lines.append(f"ORDER  BY latest_activity_at ASC NULLS FIRST")
     lines.append(f"LIMIT  {params.get('limit', 50)};")
     return "\n".join(lines)
 
@@ -212,7 +212,8 @@ def _render_results(results: list[dict], params: dict) -> None:
                               "Vitality", "Pulse", "# Records"][:len(display_cols)]
         st.dataframe(
             display_df.style.background_gradient(subset=["Pulse"], cmap="RdYlGn"),
-            use_container_width=True, height=350
+            width="stretch",
+            height=350,
         )
 
     with c2:
@@ -230,7 +231,7 @@ def _render_results(results: list[dict], params: dict) -> None:
                 legend=dict(font=dict(color="#94a3b8", size=10), bgcolor="rgba(0,0,0,0)"),
                 margin=dict(l=0, r=0, t=10, b=0), height=220,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         # Pulse distribution
         if "pulse_score" in df.columns:
@@ -242,7 +243,7 @@ def _render_results(results: list[dict], params: dict) -> None:
                 font=dict(color="#94a3b8"), margin=dict(l=0,r=0,t=10,b=0), height=150,
                 xaxis=dict(gridcolor="#1e2e52"), yaxis=dict(gridcolor="#1e2e52"),
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
     # ── Export ─────────────────────────────────────────────────────────────
     st.markdown(section_title("EXPORT"), unsafe_allow_html=True)
@@ -289,7 +290,7 @@ def _generate_report(results: list[dict], params: dict) -> str:
 
     lines += [
         "═" * 70,
-        "COMPLIANCE NOTE: All data is synthetic/scrambled — no real PII.",
+        "COMPLIANCE NOTE: All results are sourced from the PostgreSQL registry.",
         "All queries are logged to the immutable audit trail.",
         "═" * 70,
     ]

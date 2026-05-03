@@ -1,94 +1,58 @@
-"""
-ApexForge AI — Database Connection Manager
-
-This repository ships with a self-contained demo datastore so the Streamlit
-application can run without PostgreSQL or extra binary dependencies.
-"""
-
 from __future__ import annotations
 
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Generator
+import os
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError as exc:  # pragma: no cover - surfaced at runtime
+    psycopg = None
+    dict_row = None
+    _IMPORT_ERROR = exc
 
 from loguru import logger
 
-from db.demo_store import get_store
-
-
-class _DemoCursor:
-    def __init__(self) -> None:
-        self._rows: list[dict] = []
-        self.description = None
-
-    def execute(self, sql: str, params: tuple | dict | None = None) -> None:
-        self._rows = get_store().execute_sql(sql, params)
-        self.description = [("demo",)] if self._rows else None
-
-    def fetchall(self) -> list[dict]:
-        return self._rows
-
-    def fetchone(self) -> dict | None:
-        return self._rows[0] if self._rows else None
-
-    def __enter__(self) -> "_DemoCursor":
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        return None
-
-
-class _DemoConnection:
-    def commit(self) -> None:
-        return None
-
-    def rollback(self) -> None:
-        return None
-
-    def cursor(self) -> _DemoCursor:
-        return _DemoCursor()
-
-
-class _DemoPool:
-    closed = False
-
-    def getconn(self) -> _DemoConnection:
-        return _DemoConnection()
-
-    def putconn(self, conn: _DemoConnection) -> None:
-        return None
-
-
-_pool = _DemoPool()
-
-
-def get_pool(min_conn: int = 2, max_conn: int = 10) -> _DemoPool:
-    """Return the in-memory demo pool."""
-    logger.info("Using in-memory demo datastore.")
-    return _pool
+def _database_url() -> str:
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not configured.")
+    return url
 
 
 @contextmanager
-def get_conn() -> Generator[_DemoConnection, None, None]:
-    """Yield a demo connection."""
-    conn = _DemoConnection()
+def get_conn() -> Generator[Any, None, None]:
+    if psycopg is None:
+        raise ModuleNotFoundError(
+            "A PostgreSQL driver is required. Install 'psycopg[binary]'."
+        ) from _IMPORT_ERROR
+    conn = psycopg.connect(_database_url(), sslmode=os.getenv("PGSSLMODE", "require"))
     try:
         yield conn
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
 
 
 @contextmanager
-def get_cursor() -> Generator[_DemoCursor, None, None]:
-    """Yield a demo cursor."""
+def get_cursor() -> Generator[Any, None, None]:
     with get_conn() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             yield cur
 
 
 def execute(sql: str, params: tuple | dict | None = None) -> list[dict]:
-    return get_store().execute_sql(sql, params)
+    with get_cursor() as cur:
+        cur.execute(sql, params or None)
+        if cur.description:
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]
+        return []
 
 
 def execute_one(sql: str, params: tuple | dict | None = None) -> dict | None:
@@ -97,17 +61,26 @@ def execute_one(sql: str, params: tuple | dict | None = None) -> dict | None:
 
 
 def execute_many(sql: str, params_list: list[tuple | dict]) -> int:
-    count = 0
-    for params in params_list:
-        execute(sql, params)
-        count += 1
-    return count
+    if not params_list:
+        return 0
+    with get_cursor() as cur:
+        cur.executemany(sql, params_list)
+    return len(params_list)
 
 
 def health_check() -> bool:
-    return get_store().health_check()
+    try:
+        row = execute_one("SELECT 1 AS ok")
+        return bool(row and row.get("ok") == 1)
+    except Exception as exc:  # pragma: no cover - surfaced in UI
+        logger.warning("Database health check failed: {}", exc)
+        return False
 
 
 def init_schema() -> None:
-    logger.info("Demo datastore active; no schema migration required.")
-
+    schema_path = Path(__file__).with_name("schema.sql")
+    schema_sql = schema_path.read_text(encoding="utf-8")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(schema_sql)
+    logger.info("Database schema initialized.")

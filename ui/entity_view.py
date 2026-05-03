@@ -237,7 +237,7 @@ def _render_timeline(ubid: str) -> None:
                     orientation="h", yanchor="bottom", y=1.02),
         showlegend=True,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Survival trend
     trend = survival_trend(ubid)
@@ -260,7 +260,7 @@ def _render_timeline(ubid: str) -> None:
             title=dict(text="Vitality Signal Over Time (Kaplan-Meier proxy)",
                        font=dict(size=11, color="#64748b")),
         )
-        st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
 
 
 def _render_vitality_analysis(ubid: str, ent: dict) -> None:
