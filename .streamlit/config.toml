@@ -1,0 +1,16 @@
+# GraphVita AI — Streamlit Configuration
+[server]
+headless = true
+enableCORS = true
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#f59e0b"
+backgroundColor = "#0a0f1e"
+secondaryBackgroundColor = "#0f1628"
+textColor = "#f1f5f9"
+font = "sans serif"

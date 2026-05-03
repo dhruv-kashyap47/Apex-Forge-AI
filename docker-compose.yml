@@ -1,0 +1,71 @@
+
+# ─────────────────────────────────────────────
+# ApexForge AI — Docker Compose
+# Two services only: PostgreSQL (with pgvector)
+# and the Streamlit application.
+# Run: docker-compose up -d
+# App: http://localhost:8501
+# ─────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL with pgvector extension ──────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: apexforge_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-apexforge}
+      POSTGRES_USER: ${POSTGRES_USER:-apexforge_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-apexforge_user} -d ${POSTGRES_DB:-apexforge}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - apexforge_net
+
+  # ── Streamlit Application ────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apexforge_app
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-apexforge}
+      POSTGRES_USER: ${POSTGRES_USER:-apexforge_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY}
+      APP_ACCESS_CODE: ${APP_ACCESS_CODE:-}
+      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      EMBEDDING_DIM: 384
+      THRESHOLD_AUTO_LINK: 0.92
+      THRESHOLD_REVIEW: 0.65
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount model cache so it's downloaded once
+      - model_cache:/home/appuser/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - apexforge_net
+    command: >
+      sh -c "python data/synthetic_generator.py && streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"
+
+volumes:
+  postgres_data:
+  model_cache:
+
+networks:
+  apexforge_net:
+    driver: bridge
