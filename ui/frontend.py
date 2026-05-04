@@ -188,6 +188,13 @@ def page_dashboard():
     st.markdown("## Command Dashboard")
     st.caption("Live business intelligence across department silos")
 
+    # Debug: Check demo_store instance ID
+    try:
+        from db.demo_store import demo_store
+        print(f"[DASHBOARD DEBUG] demo_store instance ID: {id(demo_store)}")
+    except Exception as e:
+        print(f"[DASHBOARD DEBUG] Could not get demo_store ID: {e}")
+
     # Debug: Get actual counts directly from DB
     raw_count = _q("count_raw_records") or 0
     normalized_count = _q("count_normalized_records") or 0
@@ -1041,6 +1048,13 @@ def page_upload():
 def page_processing():
     st.markdown("## Processing Progress")
     st.caption("Run blocking, matching, clustering, UBID assignment, and vitality refresh")
+
+    # Debug: Check demo_store instance ID
+    try:
+        from db.demo_store import demo_store
+        print(f"[PROCESSING DEBUG] demo_store instance ID: {id(demo_store)}")
+    except Exception as e:
+        print(f"[PROCESSING DEBUG] Could not get demo_store ID: {e}")
 
     # Debug: Get actual counts directly from DB
     raw_count = _q("count_raw_records") or 0

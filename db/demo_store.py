@@ -1186,4 +1186,10 @@ def get_store() -> DemoStore:
     global _STORE
     if _STORE is None:
         _STORE = DemoStore()
+        print(f"[DEMO_STORE] Created new instance: {id(_STORE)}")
     return _STORE
+
+
+# Singleton instance for direct import
+demo_store = get_store()
+print(f"[DEMO_STORE] Singleton instance ID: {id(demo_store)}")

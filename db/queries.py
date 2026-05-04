@@ -32,15 +32,35 @@ _pg_execute_one = None
 _pg_health_check = None
 _pg_init_schema = None
 _get_store = None
+_demo_store_instance = None
 
 if _DEMO_MODE:
-    from db.demo_store import get_store as _get_store
+    from db.demo_store import get_store as _get_store, demo_store as _demo_store_instance
 else:
     try:
         from db.connection import execute as _pg_execute, execute_one as _pg_execute_one, health_check as _pg_health_check, init_schema as _pg_init_schema
     except Exception:
         _DEMO_MODE = True
-        from db.demo_store import get_store as _get_store
+        from db.demo_store import get_store as _get_store, demo_store as _demo_store_instance
+
+
+def _get_demo_store():
+    """Get demo store singleton - checks Streamlit session_state if available."""
+    global _demo_store_instance
+
+    # Try to get from Streamlit session_state for UI consistency
+    try:
+        import streamlit as st
+        if "demo_store" not in st.session_state:
+            st.session_state.demo_store = _demo_store_instance
+            print(f"[QUERIES] Stored demo_store in session_state: {id(_demo_store_instance)}")
+        store = st.session_state.demo_store
+        print(f"[QUERIES] Using demo_store from session_state: {id(store)}")
+        return store
+    except ImportError:
+        # Not in Streamlit context, use module-level singleton
+        print(f"[QUERIES] Using module-level demo_store: {id(_demo_store_instance)}")
+        return _demo_store_instance
 
 
 # ---------------------------------------------------------------------------
@@ -51,14 +71,14 @@ else:
 def execute(sql: str, params: tuple | dict | None = None) -> list[dict]:
     """Execute SQL returning all rows. Routes to demo store in demo mode."""
     if _DEMO_MODE:
-        return _get_store().execute_sql(sql, params)
+        return _get_demo_store().execute_sql(sql, params)
     return _pg_execute(sql, params)
 
 
 def execute_one(sql: str, params: tuple | dict | None = None) -> dict | None:
     """Execute SQL returning one row. Routes to demo store in demo mode."""
     if _DEMO_MODE:
-        rows = _get_store().execute_sql(sql, params)
+        rows = _get_demo_store().execute_sql(sql, params)
         return rows[0] if rows else None
     return _pg_execute_one(sql, params)
 
@@ -93,7 +113,7 @@ def _ensure_schema() -> None:
 
 def bootstrap() -> None:
     if _DEMO_MODE:
-        _get_store()  # triggers seed
+        _get_demo_store()  # triggers seed
         return
     _ensure_schema()
 
@@ -110,7 +130,7 @@ def ping() -> bool:
 
 def create_processing_run(run_type: str, triggered_by: str = "system", triggered_by_user: str | None = None, parameters: dict | None = None, parent_run_id: str | None = None) -> dict:
     if _DEMO_MODE:
-        return _get_store().create_processing_run(run_type, triggered_by, triggered_by_user, parameters, parent_run_id)
+        return _get_demo_store().create_processing_run(run_type, triggered_by, triggered_by_user, parameters, parent_run_id)
     row = execute_one(
         """
         INSERT INTO processing_runs (run_type, triggered_by, triggered_by_user, parameters, parent_run_id, status, started_at)
@@ -124,7 +144,7 @@ def create_processing_run(run_type: str, triggered_by: str = "system", triggered
 
 def finish_processing_run(run_id: str, status: str, metrics: dict | None = None, error_message: str | None = None) -> None:
     if _DEMO_MODE:
-        _get_store().finish_processing_run(run_id, status, metrics, error_message)
+        _get_demo_store().finish_processing_run(run_id, status, metrics, error_message)
         return
     execute(
         """
@@ -141,7 +161,7 @@ def finish_processing_run(run_id: str, status: str, metrics: dict | None = None,
 
 def get_latest_processing_runs(limit: int = 20) -> list[dict]:
     if _DEMO_MODE:
-        return _get_store().get_latest_processing_runs(limit)
+        return _get_demo_store().get_latest_processing_runs(limit)
     return execute(
         """
         SELECT *
@@ -156,7 +176,7 @@ def get_latest_processing_runs(limit: int = 20) -> list[dict]:
 def reset_demo_store(seed: bool = False) -> None:
     if not _DEMO_MODE:
         raise RuntimeError("reset_demo_store is only available in demo mode")
-    _get_store().reset(seed=seed)
+    _get_demo_store().reset(seed=seed)
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +185,7 @@ def reset_demo_store(seed: bool = False) -> None:
 
 def create_upload(payload: dict) -> dict:
     if _DEMO_MODE:
-        return _get_store().create_upload(payload)
+        return _get_demo_store().create_upload(payload)
     row = execute_one(
         """
         INSERT INTO uploads (
@@ -196,7 +216,7 @@ def update_upload(upload_id: str, **fields: Any) -> None:
     if not fields:
         return
     if _DEMO_MODE:
-        _get_store().update_upload(upload_id, **fields)
+        _get_demo_store().update_upload(upload_id, **fields)
         return
     assignments = ", ".join(f"{key} = %s" for key in fields)
     values = list(fields.values()) + [upload_id]
@@ -205,7 +225,7 @@ def update_upload(upload_id: str, **fields: Any) -> None:
 
 def create_source_file(payload: dict) -> dict:
     if _DEMO_MODE:
-        return _get_store().create_source_file(payload)
+        return _get_demo_store().create_source_file(payload)
     row = execute_one(
         """
         INSERT INTO source_files (
@@ -234,7 +254,7 @@ def create_source_file(payload: dict) -> dict:
 
 def insert_raw_record(record: dict) -> dict:
     if _DEMO_MODE:
-        return _get_store().insert_raw_record(record)
+        return _get_demo_store().insert_raw_record(record)
     row = execute_one(
         """
         INSERT INTO raw_records (
@@ -300,7 +320,7 @@ def insert_raw_records(records: list[dict]) -> list[dict]:
 
 def get_all_raw_records(limit: int | None = None) -> list[dict]:
     if _DEMO_MODE:
-        rows = _get_store().get_all_raw_records(limit=limit)
+        rows = _get_demo_store().get_all_raw_records(limit=limit)
         return rows
     sql = "SELECT * FROM raw_records ORDER BY created_at ASC, source_row_number ASC"
     if limit is not None:
@@ -311,7 +331,7 @@ def get_all_raw_records(limit: int | None = None) -> list[dict]:
 
 def get_raw_records(run_id: str | None = None, limit: int | None = None) -> list[dict]:
     if _DEMO_MODE:
-        rows = _get_store().get_all_raw_records(limit=limit)
+        rows = _get_demo_store().get_all_raw_records(limit=limit)
         return rows
 
     if run_id:
@@ -326,7 +346,7 @@ def get_raw_records(run_id: str | None = None, limit: int | None = None) -> list
 
 def get_normalized_records(limit: int | None = None) -> list[dict]:
     if _DEMO_MODE:
-        rows = _get_store().get_normalized_records(limit=limit)
+        rows = _get_demo_store().get_normalized_records(limit=limit)
         return rows
     sql = "SELECT * FROM normalized_records ORDER BY created_at ASC"
     if limit is not None:
@@ -337,13 +357,13 @@ def get_normalized_records(limit: int | None = None) -> list[dict]:
 
 def count_normalized_records() -> int:
     if _DEMO_MODE:
-        return int(_get_store().count_normalized_records())
+        return int(_get_demo_store().count_normalized_records())
     return int((execute_one("SELECT COUNT(*) AS n FROM normalized_records") or {}).get("n", 0))
 
 
 def insert_normalized_record(record: dict) -> dict:
     if _DEMO_MODE:
-        return _get_store().insert_normalized_record(record)
+        return _get_demo_store().insert_normalized_record(record)
     row = execute_one(
         """
         INSERT INTO normalized_records (
@@ -492,7 +512,7 @@ def get_normalized_record(normalized_record_id: str) -> dict | None:
 
 def get_records_for_blocking(pin_code: str | None = None, limit: int = 100000) -> list[dict]:
     if _DEMO_MODE:
-        records = _get_store().get_records_for_blocking(pin_code)
+        records = _get_demo_store().get_records_for_blocking(pin_code)
         return records[:limit]
     if pin_code:
         return execute(
@@ -523,7 +543,7 @@ def get_records_for_blocking(pin_code: str | None = None, limit: int = 100000) -
 
 
 def get_unlinked_records(limit: int = 5000) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_unlinked_records()
+    if _DEMO_MODE: return _get_demo_store().get_unlinked_records()
     return execute(
         """
         SELECT nr.*, rr.business_name, rr.department_code, rr.pan, rr.gstin, rr.pin_code
@@ -545,7 +565,7 @@ def get_unlinked_records(limit: int = 5000) -> list[dict]:
 def insert_match_edge(payload: dict) -> dict:
     if _DEMO_MODE:
         match = {"record_a_id": payload.get("left_normalized_record_id"), "record_b_id": payload.get("right_normalized_record_id"), "confidence": payload.get("confidence", 0), "match_status": "AUTO_LINKED" if payload.get("decision_state") == "AUTO_MERGED" else ("REVIEW" if payload.get("decision_state") in ("PENDING", "IN_REVIEW") else "REJECTED"), "explanation": payload.get("explanation", {})}
-        match_id = _get_store().insert_match(match)
+        match_id = _get_demo_store().insert_match(match)
         return {"match_edge_id": str(match_id), "decision_state": payload.get("decision_state")}
     row = execute_one(
         """
@@ -594,7 +614,7 @@ def enqueue_review(match_id: str) -> dict:
     if _DEMO_MODE:
         try: mid = int(match_id)
         except: mid = hash(match_id) % 1_000_000
-        _get_store().enqueue_review(mid)
+        _get_demo_store().enqueue_review(mid)
         return {"match_edge_id": match_id}
     row = execute_one(
         """
@@ -626,7 +646,7 @@ def enqueue_review(match_id: str) -> dict:
 
 
 def get_pending_matches(threshold: float = 0.65, limit: int = 50) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_pending_matches(threshold, limit)
+    if _DEMO_MODE: return _get_demo_store().get_pending_matches(threshold, limit)
     return execute(
         """
         SELECT
@@ -680,7 +700,7 @@ def update_match_decision(match_id: str, decision: str, reviewer: str, justifica
         state = {"MERGED": "MERGED", "APPROVE": "MERGED", "SPLIT": "REJECTED", "REJECT": "REJECTED"}.get(decision.upper(), "REVIEW")
         try: mid = int(match_id)
         except: mid = hash(match_id) % 1_000_000
-        _get_store().update_match_decision(mid, state, reviewer, justification)
+        _get_demo_store().update_match_decision(mid, state, reviewer, justification)
         return
     decision_upper = decision.upper()
     mapping = {
@@ -812,7 +832,7 @@ def create_cluster_member(payload: dict) -> dict:
 def create_ubid(payload: dict) -> dict:
     if _DEMO_MODE:
         import uuid
-        ubid = _get_store().create_entity({"canonical_name": payload.get("canonical_name") or "", "pan": payload.get("normalized_pan"), "gstin": payload.get("normalized_gstin"), "pin_code": payload.get("normalized_pin"), "sector": payload.get("summary", {}).get("sector"), "departments": payload.get("summary", {}).get("departments", []), "record_count": payload.get("record_count", 0), "confidence_score": 0.95, "vitality_status": "UNKNOWN", "vitality_score": 0.0, "pulse_score": 0})
+        ubid = _get_demo_store().create_entity({"canonical_name": payload.get("canonical_name") or "", "pan": payload.get("normalized_pan"), "gstin": payload.get("normalized_gstin"), "pin_code": payload.get("normalized_pin"), "sector": payload.get("summary", {}).get("sector"), "departments": payload.get("summary", {}).get("departments", []), "record_count": payload.get("record_count", 0), "confidence_score": 0.95, "vitality_status": "UNKNOWN", "vitality_score": 0.0, "pulse_score": 0})
         return {"ubid_id": ubid}
     row = execute_one(
         """
@@ -854,7 +874,7 @@ def create_ubid(payload: dict) -> dict:
 
 def link_record_to_ubid(ubid_id: str, normalized_record_id: str, confidence: float, linked_by: str = "system", match_edge_id: str | None = None, cluster_id: str | None = None) -> dict:
     if _DEMO_MODE:
-        _get_store().link_record_to_entity(ubid_id, normalized_record_id, confidence, linked_by)
+        _get_demo_store().link_record_to_entity(ubid_id, normalized_record_id, confidence, linked_by)
         return {}
     if cluster_id is None:
         cluster = execute_one("SELECT cluster_id FROM ubids WHERE ubid_id::text = %s", (ubid_id,))
@@ -899,7 +919,7 @@ def link_record_to_ubid(ubid_id: str, normalized_record_id: str, confidence: flo
 
 def update_entity_vitality(ubid: str, status: str, score: float, pulse: int, record_override: bool = True) -> None:
     if _DEMO_MODE:
-        _get_store().update_entity_vitality(ubid, status, score, pulse)
+        _get_demo_store().update_entity_vitality(ubid, status, score, pulse)
         return
     execute(
         """
@@ -929,7 +949,7 @@ def update_entity_vitality(ubid: str, status: str, score: float, pulse: int, rec
 
 
 def get_entity(ubid: str) -> dict | None:
-    if _DEMO_MODE: return _get_store().get_entity(ubid)
+    if _DEMO_MODE: return _get_demo_store().get_entity(ubid)
     row = execute_one(
         """
         SELECT
@@ -954,7 +974,7 @@ def get_entity(ubid: str) -> dict | None:
 
 
 def search_entities(query: str, pin_code: str | None = None, vitality: str | None = None, limit: int = 50) -> list[dict]:
-    if _DEMO_MODE: return _get_store().search_entities(query, pin_code, vitality, limit)
+    if _DEMO_MODE: return _get_demo_store().search_entities(query, pin_code, vitality, limit)
     like = f"%{query.strip()}%" if query else None
     rows = execute(
         """
@@ -978,7 +998,7 @@ def search_entities(query: str, pin_code: str | None = None, vitality: str | Non
 
 
 def get_entity_records(ubid: str) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_entity_records(ubid)
+    if _DEMO_MODE: return _get_demo_store().get_entity_records(ubid)
     return execute(
         """
         SELECT
@@ -1023,7 +1043,7 @@ def get_entity_records(ubid: str) -> list[dict]:
 
 
 def get_entity_events(ubid: str) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_entity_events(ubid)
+    if _DEMO_MODE: return _get_demo_store().get_entity_events(ubid)
     return execute(
         """
         SELECT *
@@ -1073,7 +1093,7 @@ def upsert_status_event(payload: dict) -> dict:
     payload["event_date"] = event_date
 
     if _DEMO_MODE:
-        _get_store().insert_event({"ubid": payload.get("ubid_id"), "raw_record_id": payload.get("raw_record_id"), "department_code": payload.get("event_source"), "event_type": payload.get("event_type"), "event_date": payload.get("event_date"), "signal_strength": payload.get("activity_weight", 1.0), "details": payload.get("details", {})})
+        _get_demo_store().insert_event({"ubid": payload.get("ubid_id"), "raw_record_id": payload.get("raw_record_id"), "department_code": payload.get("event_source"), "event_type": payload.get("event_type"), "event_date": payload.get("event_date"), "signal_strength": payload.get("activity_weight", 1.0), "details": payload.get("details", {})})
         return {}
     existing = execute_one(
         """
@@ -1109,35 +1129,35 @@ def upsert_status_event(payload: dict) -> dict:
 
 def count_raw_records() -> int:
     if _DEMO_MODE:
-        return int(_get_store().count_raw_records())
+        return int(_get_demo_store().count_raw_records())
     return int((execute_one("SELECT COUNT(*) AS n FROM raw_records") or {}).get("n", 0))
 
 
 def count_entities() -> int:
     if _DEMO_MODE:
-        return int(_get_store().count_entities())
+        return int(_get_demo_store().count_entities())
     return int((execute_one("SELECT COUNT(*) AS n FROM ubids") or {}).get("n", 0))
 
 
 def count_activity_events() -> int:
     if _DEMO_MODE:
-        return int(_get_store().count_activity_events())
+        return int(_get_demo_store().count_activity_events())
     return int((execute_one("SELECT COUNT(*) AS n FROM status_events") or {}).get("n", 0))
 
 
 def count_audit_log() -> int:
-    if _DEMO_MODE: return _get_store().count_audit_log()
+    if _DEMO_MODE: return _get_demo_store().count_audit_log()
     return int((execute_one("SELECT COUNT(*) AS n FROM audit_logs") or {}).get("n", 0))
 
 
 def count_pending_reviews() -> int:
     if _DEMO_MODE:
-        return int(_get_store().count_pending_reviews())
+        return int(_get_demo_store().count_pending_reviews())
     return int((execute_one("SELECT COUNT(*) AS n FROM review_cases WHERE case_status IN ('OPEN','IN_REVIEW')") or {}).get("n", 0))
 
 
 def get_dashboard_stats() -> dict:
-    if _DEMO_MODE: return _get_store().get_dashboard_stats()
+    if _DEMO_MODE: return _get_demo_store().get_dashboard_stats()
     base = execute_one("SELECT * FROM v_dashboard_summary") or {}
     statuses = execute_one(
         """
@@ -1166,7 +1186,7 @@ def get_dashboard_stats() -> dict:
 
 
 def get_entities_by_sector(limit: int = 20) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_entities_by_sector(limit)
+    if _DEMO_MODE: return _get_demo_store().get_entities_by_sector(limit)
     return execute(
         """
         SELECT
@@ -1185,7 +1205,7 @@ def get_entities_by_sector(limit: int = 20) -> list[dict]:
 
 
 def get_vitality_by_pin() -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_vitality_by_pin()
+    if _DEMO_MODE: return _get_demo_store().get_vitality_by_pin()
     return execute(
         """
         SELECT
@@ -1202,7 +1222,7 @@ def get_vitality_by_pin() -> list[dict]:
 
 
 def get_active_entity_ids(limit: int = 5000) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_active_entity_ids(limit)
+    if _DEMO_MODE: return _get_demo_store().get_active_entity_ids(limit)
     return execute(
         """
         SELECT ubid_id AS ubid
@@ -1215,7 +1235,7 @@ def get_active_entity_ids(limit: int = 5000) -> list[dict]:
 
 
 def get_all_match_edges(status_filter: list[str] | None = None) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_all_match_edges(status_filter)
+    if _DEMO_MODE: return _get_demo_store().get_all_match_edges(status_filter)
     statuses = status_filter or ["AUTO_MERGED", "IN_REVIEW", "APPROVED"]
     return execute(
         """
@@ -1253,7 +1273,7 @@ def get_all_match_edges(status_filter: list[str] | None = None) -> list[dict]:
 
 
 def get_match_stats() -> dict:
-    if _DEMO_MODE: return _get_store().get_match_stats()
+    if _DEMO_MODE: return _get_demo_store().get_match_stats()
     row = execute_one(
         """
         SELECT
@@ -1288,7 +1308,7 @@ def get_graph_clusters_cte(seed_record_id: str) -> list[dict]:
 
 
 def get_review_cases(limit: int = 50) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_review_cases(limit)
+    if _DEMO_MODE: return _get_demo_store().get_review_cases(limit)
     return execute(
         """
         SELECT *
@@ -1305,7 +1325,7 @@ def get_review_case(review_case_id: str) -> dict | None:
 
 
 def get_audit_trail(entity_ubid: str | None = None, limit: int = 100) -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_audit_trail(entity_ubid, limit)
+    if _DEMO_MODE: return _get_demo_store().get_audit_trail(entity_ubid, limit)
     if entity_ubid:
         return execute(
             """
@@ -1397,7 +1417,7 @@ def log_audit(
 
 
 def run_structured_query(params: dict) -> list[dict]:
-    if _DEMO_MODE: return _get_store().run_structured_query(params)
+    if _DEMO_MODE: return _get_demo_store().run_structured_query(params)
     sql = """
         SELECT *
         FROM v_ubid_registry
@@ -1435,7 +1455,7 @@ def run_structured_query(params: dict) -> list[dict]:
 
 
 def get_learning_labels() -> list[dict]:
-    if _DEMO_MODE: return _get_store().get_learning_labels()
+    if _DEMO_MODE: return _get_demo_store().get_learning_labels()
     return execute(
         """
         SELECT
@@ -1456,7 +1476,7 @@ def get_learning_labels() -> list[dict]:
 
 
 def get_threshold_stats() -> dict:
-    if _DEMO_MODE: return _get_store().get_threshold_stats()
+    if _DEMO_MODE: return _get_demo_store().get_threshold_stats()
     return execute_one(
         """
         SELECT
@@ -1534,7 +1554,7 @@ def link_record_to_entity(ubid: str, record_id: str, confidence: float, linked_b
 def approve_match(case_id: str) -> None:
     """Approve (merge) a review case."""
     if _DEMO_MODE:
-        store = _get_store()
+        store = _get_demo_store()
         try:
             mid = int(case_id)
         except (ValueError, TypeError):
@@ -1547,7 +1567,7 @@ def approve_match(case_id: str) -> None:
 def reject_match(case_id: str) -> None:
     """Reject (split) a review case."""
     if _DEMO_MODE:
-        store = _get_store()
+        store = _get_demo_store()
         try:
             mid = int(case_id)
         except (ValueError, TypeError):
