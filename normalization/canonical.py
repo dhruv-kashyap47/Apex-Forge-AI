@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import hashlib
 import re
 from typing import Any
@@ -40,17 +40,21 @@ def record_hash(department_code: str, source_key: str, business_name: str) -> st
     return hashlib.sha256(f"{department_code}::{source_key}::{business_name}".encode("utf-8")).hexdigest()
 
 
-def to_date(value: Any) -> date | None:
+def to_date(value: Any) -> datetime | None:
     if value in (None, "", "null"):
         return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
     if isinstance(value, date):
-        return value
+        return datetime.combine(value, datetime.min.time()).replace(tzinfo=timezone.utc)
     try:
-        return datetime.fromisoformat(str(value)).date()
+        dt = datetime.fromisoformat(str(value))
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
     except Exception:
         try:
-            return datetime.strptime(str(value), "%Y-%m-%d").date()
+            return datetime.strptime(str(value), "%Y-%m-%d").replace(tzinfo=timezone.utc)
         except Exception:
+            print(f"Invalid date format: {value}")
             return None
 
 
@@ -73,6 +77,8 @@ def validate_raw_source_row(row: dict[str, Any], source_map: dict[str, str | Non
         pin = normalize_pin(pin_value)
         if not pin:
             errors.append("pin_code must contain exactly 6 digits")
+    else:
+        errors.append("pin_code is required")
 
     for field in ("activity_date", "registration_date"):
         source_field = source_map.get(field)

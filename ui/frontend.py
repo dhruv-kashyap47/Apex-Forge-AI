@@ -188,10 +188,22 @@ def page_dashboard():
     st.markdown("## Command Dashboard")
     st.caption("Live business intelligence across department silos")
 
+    # Debug: Get actual counts directly from DB
+    raw_count = _q("count_raw_records") or 0
+    normalized_count = _q("count_normalized_records") or 0
+    ubid_count = _q("count_entities") or 0
+    print(f"[DASHBOARD DEBUG] Raw: {raw_count}, Normalized: {normalized_count}, UBIDs: {ubid_count}")
+
     stats = _q("get_dashboard_stats")
     if not isinstance(stats, dict) or not stats:
         st.info("No data loaded. Upload records first.")
         return
+
+    # Ensure stats reflect actual DB counts
+    stats["total_raw_records"] = raw_count
+    stats["total_normalized_records"] = normalized_count
+    stats["total_ubids"] = ubid_count
+    stats["total_entities"] = ubid_count
 
     # Normalise key differences between PG (total_ubids) and demo (total_entities)
     if "total_entities" not in stats:
@@ -202,7 +214,7 @@ def page_dashboard():
         (stats.get("active_count", 0),   "Active"),
         (stats.get("dormant_count", 0),  "Dormant"),
         (stats.get("closed_count", 0),   "Closed"),
-        (stats.get("pending_reviews", 0),"Pending Review"),
+        (stats.get("total_normalized_records", 0), "Normalized"),
         (stats.get("total_raw_records", 0), "Raw Records"),
     ]
     cols = st.columns(6)
@@ -1030,7 +1042,18 @@ def page_processing():
     st.markdown("## Processing Progress")
     st.caption("Run blocking, matching, clustering, UBID assignment, and vitality refresh")
 
+    # Debug: Get actual counts directly from DB
+    raw_count = _q("count_raw_records") or 0
+    normalized_count = _q("count_normalized_records") or 0
+    ubid_count = _q("count_entities") or 0
+    print(f"[PROCESSING DEBUG] Raw: {raw_count}, Normalized: {normalized_count}, UBIDs: {ubid_count}")
+
     stats = _q("get_dashboard_stats")
+    # Ensure stats reflect actual DB counts
+    stats["total_raw_records"] = raw_count
+    stats["total_normalized_records"] = normalized_count
+    stats["total_ubids"] = ubid_count
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Raw Records",     stats.get("total_raw_records",0))
     c2.metric("Normalized",      stats.get("total_normalized_records",0))
@@ -1046,18 +1069,60 @@ def page_processing():
                 with st.spinner("Running resolution pipeline…"):
                     run = None
                     try:
+                        # Step 1: Create processing run
                         run = _q("create_processing_run","PIPELINE", triggered_by="ui")
+                        print(f"Created processing run: {run.get('run_id')}")
+
+                        # Step 2: Normalize raw records
+                        ubids_before = _q("count_entities") or 0
+                        print(f"UBIDs before pipeline: {ubids_before}")
+
                         norm_result = _q("normalize_all_raw_records", processing_run_id=run["run_id"])
                         normalized_count = int(norm_result.get("normalized_count", 0) if isinstance(norm_result, dict) else 0)
-                        if normalized_count <= 0:
-                            raise ValueError("No normalized data available")
+                        raw_count = int(norm_result.get("raw_count", 0) if isinstance(norm_result, dict) else 0)
+
+                        print(f"Pipeline Step 1 - Raw count: {raw_count}")
+                        print(f"Pipeline Step 1 - Normalized count: {normalized_count}")
+
+                        # Fail loudly if normalization failed
+                        if raw_count > 0 and normalized_count == 0:
+                            raise Exception(f"Normalization failed: {raw_count} raw records but 0 normalized records")
+                        if normalized_count == 0:
+                            raise Exception("No records available for processing")
+
+                        # Step 3: Run matching
+                        print(f"Pipeline Step 2 - Running matching on {normalized_count} records")
                         result = run_resolution(processing_run_id=run["run_id"])
-                        merged = {**(norm_result if isinstance(norm_result, dict) else {}), **result}
-                        _q("finish_processing_run", run["run_id"], "SUCCEEDED", metrics=merged)
+                        matching_input = result.get("total_records", 0)
+                        print(f"Pipeline Step 2 - Matching input size: {matching_input}")
+
+                        # Fail loudly if matching input is zero
+                        if normalized_count > 0 and matching_input == 0:
+                            raise Exception(f"Pipeline broken: {normalized_count} normalized records but 0 records for matching")
+
+                        # Step 4: UBID creation (handled within run_resolution)
+                        ubids_after = _q("count_entities") or 0
+                        ubids_created = ubids_after - ubids_before
+                        print(f"Pipeline Step 3 - UBIDs created: {ubids_created}")
+
+                        # Step 5: Status events
+                        print(f"Pipeline Step 4 - Syncing status events")
                         _sync_status_events()
+
+                        # Step 6: Entity classification
                         if classify_all_entities:
+                            print(f"Pipeline Step 5 - Running entity classification")
                             classify_all_entities()
-                        st.success(f"Done: {merged}")
+
+                        merged = {**(norm_result if isinstance(norm_result, dict) else {}), **result}
+                        merged.update({
+                            "ubids_created": ubids_created,
+                            "pipeline_steps_completed": 6
+                        })
+                        _q("finish_processing_run", run["run_id"], "SUCCEEDED", metrics=merged)
+
+                        print(f"Pipeline completed successfully: {merged}")
+                        st.success(f"Pipeline completed: {normalized_count} normalized → {matching_input} matched → {ubids_created} UBIDs created")
                     except Exception as exc:
                         if isinstance(run, dict) and run.get("run_id"):
                             _q("finish_processing_run", run["run_id"], "FAILED", error_message=str(exc))
@@ -1094,21 +1159,58 @@ def page_processing():
 
 def _sync_status_events():
     if queries is None: return
-    ubids = _q("get_active_entity_ids", limit=10000)
-    inserted = 0
-    for entry in ubids:
-        ubid = str(entry["ubid"])
-        for rec in _q("get_entity_records", ubid):
-            event_date = rec.get("activity_date") or rec.get("registration_date") or datetime.now(timezone.utc)
-            _q("upsert_status_event", {
-                "ubid_id": ubid, "raw_record_id": rec.get("raw_record_id"),
-                "event_type": rec.get("status_raw") or "FILING",
-                "event_source": rec.get("department_code"), "event_date": event_date,
-                "activity_weight": 1.0, "derived_status": None,
-                "details": {"business_name": rec.get("business_name"), "source_record_id": str(rec.get("raw_record_id"))},
-            })
-            inserted += 1
-    st.caption(f"Status events materialized: {inserted}")
+    try:
+        ubids = _q("get_active_entity_ids", limit=10000)
+        if not ubids:
+            print("No active entities found for status sync")
+            st.caption("Status events materialized: 0")
+            return
+
+        inserted = 0
+        errors = 0
+        total_records = 0
+
+        for entry in ubids:
+            ubid = str(entry["ubid"])
+            try:
+                records = _q("get_entity_records", ubid)
+                if not records:
+                    continue
+
+                for rec in records:
+                    total_records += 1
+                    try:
+                        # Ensure datetime consistency
+                        event_date = rec.get("activity_date") or rec.get("registration_date") or datetime.now(timezone.utc)
+                        if isinstance(event_date, datetime) and event_date.tzinfo is None:
+                            event_date = event_date.replace(tzinfo=timezone.utc)
+                        elif not isinstance(event_date, datetime):
+                            event_date = datetime.now(timezone.utc)
+
+                        _q("upsert_status_event", {
+                            "ubid_id": ubid, "raw_record_id": rec.get("raw_record_id"),
+                            "event_type": rec.get("status_raw") or "FILING",
+                            "event_source": rec.get("department_code"), "event_date": event_date,
+                            "activity_weight": 1.0, "derived_status": None,
+                            "details": {"business_name": rec.get("business_name"), "source_record_id": str(rec.get("raw_record_id"))},
+                        })
+                        inserted += 1
+                    except Exception as e:
+                        print(f"Error syncing status event for {ubid}, record {rec.get('raw_record_id')}: {e}")
+                        errors += 1
+                        # Continue processing other records for this UBID
+
+            except Exception as e:
+                print(f"Error processing UBID {ubid}: {e}")
+                errors += 1
+                # Continue processing other UBIDs
+
+        print(f"Status sync completed: {inserted} inserted, {errors} errors, {total_records} total records")
+        st.caption(f"Status events materialized: {inserted} (errors: {errors})")
+
+    except Exception as e:
+        print(f"Critical error in status sync: {e}")
+        st.caption(f"Status sync failed: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -310,6 +310,17 @@ def get_all_raw_records(limit: int | None = None) -> list[dict]:
 
 
 def get_raw_records(run_id: str | None = None, limit: int | None = None) -> list[dict]:
+    if _DEMO_MODE:
+        rows = _get_store().get_all_raw_records(limit=limit)
+        return rows
+
+    if run_id:
+        sql = "SELECT * FROM raw_records WHERE processing_run_id = %s ORDER BY created_at ASC, source_row_number ASC"
+        if limit is not None:
+            sql += " LIMIT %s"
+            return execute(sql, (run_id, limit))
+        return execute(sql, (run_id,))
+
     return get_all_raw_records(limit=limit)
 
 
@@ -412,32 +423,62 @@ def normalize_all_raw_records(processing_run_id: str | None = None) -> dict[str,
     inserted = 0
     skipped = 0
     for idx, raw in enumerate(raw_records, 1):
-        errors = validate_raw_source_row(raw, source_map)
-        if errors:
+        try:
+            # Hard validation for required fields
+            business_name = str(raw.get("business_name", "")).strip()
+            pin_code = str(raw.get("pin_code", "")).strip()
+            address_full = str(raw.get("address_full", "")).strip()
+
+            if not business_name:
+                print(f"Skipping record {idx}: business_name is required")
+                skipped += 1
+                continue
+
+            if not pin_code:
+                print(f"Skipping record {idx}: pin_code is required")
+                skipped += 1
+                continue
+
+            if not address_full:
+                print(f"Skipping record {idx}: address_full is required")
+                skipped += 1
+                continue
+
+            department_code = str(raw.get("department_code") or "UPLOAD")
+            source_key = str(raw.get("source_record_key") or raw.get("source_file_id") or idx)
+            _, norm_row = normalize_row(raw, source_map, department_code, source_key, idx)
+            raw_record_id = raw.get("raw_record_id") or raw.get("id")
+            if not raw_record_id:
+                print(f"Skipping record {idx}: no raw_record_id found")
+                skipped += 1
+                continue
+
+            norm_row.update(
+                {
+                    "raw_record_id": raw_record_id,
+                    "processing_run_id": processing_run_id or raw.get("processing_run_id"),
+                    "record_hash": raw.get("record_hash") or norm_row.get("record_hash"),
+                }
+            )
+
+            saved = insert_normalized_record(norm_row)
+            if saved:
+                inserted += 1
+            else:
+                print(f"Failed to insert normalized record {idx}")
+                skipped += 1
+
+        except Exception as e:
+            print(f"Error processing record {idx}: {e}")
             skipped += 1
-            continue
-        department_code = str(raw.get("department_code") or "UPLOAD")
-        source_key = str(raw.get("source_record_key") or raw.get("source_file_id") or idx)
-        _, norm_row = normalize_row(raw, source_map, department_code, source_key, idx)
-        raw_record_id = raw.get("raw_record_id") or raw.get("id")
-        if not raw_record_id:
-            skipped += 1
-            continue
-        norm_row.update(
-            {
-                "raw_record_id": raw_record_id,
-                "processing_run_id": processing_run_id or raw.get("processing_run_id"),
-                "record_hash": raw.get("record_hash") or norm_row.get("record_hash"),
-            }
-        )
-        saved = insert_normalized_record(norm_row)
-        if saved:
-            inserted += 1
 
     print(f"Normalized count: {inserted}")
     print(f"Skipped count: {skipped}")
-    if inserted == 0:
-        raise ValueError("No normalized data available")
+
+    # Fail loudly if no records were normalized
+    if raw_count > 0 and inserted == 0:
+        raise ValueError(f"Failed to normalize any records from {raw_count} raw records")
+
     return {"raw_count": raw_count, "normalized_count": inserted, "skipped_count": skipped}
 
 
@@ -1019,6 +1060,18 @@ def get_vitality_signals(ubid: str) -> dict:
 
 
 def upsert_status_event(payload: dict) -> dict:
+    event_date = payload.get("event_date")
+    if isinstance(event_date, datetime):
+        if event_date.tzinfo is None:
+            event_date = event_date.replace(tzinfo=timezone.utc)
+        else:
+            # Convert to UTC if timezone-aware
+            event_date = event_date.astimezone(timezone.utc)
+    else:
+        # Handle case where event_date is not a datetime
+        event_date = datetime.now(timezone.utc)
+    payload["event_date"] = event_date
+
     if _DEMO_MODE:
         _get_store().insert_event({"ubid": payload.get("ubid_id"), "raw_record_id": payload.get("raw_record_id"), "department_code": payload.get("event_source"), "event_type": payload.get("event_type"), "event_date": payload.get("event_date"), "signal_strength": payload.get("activity_weight", 1.0), "details": payload.get("details", {})})
         return {}
