@@ -20,7 +20,7 @@ def parse_upload(file_obj: Any, filename: str) -> pd.DataFrame:
     file_format = detect_file_format(filename)
     raw = file_obj.getvalue()
     if file_format == "CSV":
-        return pd.read_csv(io.BytesIO(raw))
+        return pd.read_csv(io.BytesIO(raw), on_bad_lines="skip")
     payload = json.loads(raw.decode("utf-8"))
     if isinstance(payload, dict):
         if "records" in payload and isinstance(payload["records"], list):

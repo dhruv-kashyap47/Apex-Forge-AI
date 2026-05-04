@@ -182,6 +182,7 @@ def _classify_vitality(events: list[dict]) -> tuple[str, float, int]:
 @dataclass
 class DemoStore:
     raw_records: dict[str, dict]
+    normalized_records: dict[str, dict]
     entities: dict[str, dict]
     record_links: dict[str, dict]
     entity_matches: dict[tuple[str, str], dict]
@@ -195,6 +196,7 @@ class DemoStore:
 
     def __init__(self) -> None:
         self.raw_records = {}
+        self.normalized_records = {}
         self.entities = {}
         self.record_links = {}
         self.entity_matches = {}
@@ -210,7 +212,7 @@ class DemoStore:
         self._id_seq = 1
         self._match_seq = 1
         self._audit_seq = 1
-        self._seed()
+        # self._seed()
 
     # ------------------------------------------------------------------
     # Seeding
@@ -512,13 +514,38 @@ class DemoStore:
         return sorted(rows, key=lambda r: r.get("ingested_at", NOW), reverse=True)[:limit]
 
     def get_records_for_blocking(self, pin_code: str | None = None) -> list[dict]:
-        rows = list(self.raw_records.values())
+        rows = []
+        for normalized in self.normalized_records.values():
+            row = dict(normalized)
+            raw_id = normalized.get("raw_record_id")
+            raw = self.raw_records.get(str(raw_id)) if raw_id else None
+            if raw:
+                row.update(raw)
+            row["normalized_record_id"] = normalized.get("normalized_record_id")
+            rows.append(row)
         if pin_code:
-            rows = [r for r in rows if str(r.get("pin_code") or "") == str(pin_code)]
-        return sorted(rows, key=lambda r: (r.get("department_code", ""), r.get("business_name", "")))
+            rows = [r for r in rows if str(r.get("normalized_pin") or r.get("pin_code") or "") == str(pin_code)]
+        return sorted(rows, key=lambda r: (r.get("department_code", ""), r.get("canonical_name", "") or r.get("business_name", "")))
 
     def get_unlinked_records(self) -> list[dict]:
-        return [r for r in self.raw_records.values() if r["id"] not in self.record_links]
+        return [r for r in self.normalized_records.values() if r["normalized_record_id"] not in self.record_links]
+
+    def get_all_raw_records(self, limit: int | None = None) -> list[dict]:
+        rows = sorted(
+            self.raw_records.values(),
+            key=lambda r: (r.get("created_at") or NOW, str(r.get("business_name", ""))),
+        )
+        return rows if limit is None else rows[:limit]
+
+    def get_raw_records(self, run_id: str | None = None, limit: int | None = None) -> list[dict]:
+        return self.get_all_raw_records(limit=limit)
+
+    def get_normalized_records(self, limit: int | None = None) -> list[dict]:
+        rows = sorted(
+            self.normalized_records.values(),
+            key=lambda r: (r.get("created_at") or NOW, str(r.get("canonical_name", ""))),
+        )
+        return rows if limit is None else rows[:limit]
 
     def get_similar_records_by_embedding(self, embedding: list[float], top_k: int = 10, exclude_id: str | None = None) -> list[dict]:
         rows = []
@@ -623,8 +650,8 @@ class DemoStore:
         for match in self.entity_matches.values():
             if match.get("match_status") not in statuses:
                 continue
-            a = self.raw_records.get(match["record_a_id"], {})
-            b = self.raw_records.get(match["record_b_id"], {})
+            a = self.normalized_records.get(match["record_a_id"], self.raw_records.get(match["record_a_id"], {}))
+            b = self.normalized_records.get(match["record_b_id"], self.raw_records.get(match["record_b_id"], {}))
             rows.append(
                 {
                     "id": match["id"],
@@ -731,9 +758,14 @@ class DemoStore:
             )
 
     def link_record_to_entity(self, ubid: str, record_id: str, confidence: float, linked_by: str = "system") -> None:
+        raw_id = str(record_id)
+        normalized_record = self.normalized_records.get(raw_id)
+        if normalized_record and normalized_record.get("raw_record_id"):
+            raw_id = str(normalized_record.get("raw_record_id"))
         self.record_links[str(record_id)] = {
             "ubid": str(ubid),
-            "raw_record_id": str(record_id),
+            "raw_record_id": raw_id,
+            "normalized_record_id": str(record_id) if normalized_record else None,
             "link_confidence": float(confidence),
             "linked_by": linked_by,
             "linked_at": NOW,
@@ -744,7 +776,14 @@ class DemoStore:
         for record_id, link in self.record_links.items():
             if link["ubid"] != ubid:
                 continue
-            record = self.raw_records.get(record_id)
+            normalized_id = link.get("normalized_record_id")
+            if normalized_id:
+                record = dict(self.normalized_records.get(normalized_id, {}))
+                raw_id = link.get("raw_record_id")
+                if raw_id and raw_id in self.raw_records:
+                    record.update(self.raw_records[raw_id])
+            else:
+                record = self.raw_records.get(record_id)
             if not record:
                 continue
             row = dict(record)
@@ -753,6 +792,10 @@ class DemoStore:
         return sorted(rows, key=lambda r: str(r.get("department_code", "")))
 
     def insert_event(self, event: dict) -> None:
+        edate = event.get("event_date") or NOW
+        if type(edate).__name__ == "date":
+            from datetime import datetime
+            edate = datetime.combine(edate, datetime.min.time())
         self.activity_events.append(
             {
                 "id": len(self.activity_events) + 1,
@@ -760,7 +803,7 @@ class DemoStore:
                 "raw_record_id": event.get("raw_record_id"),
                 "department_code": event.get("department_code"),
                 "event_type": event.get("event_type"),
-                "event_date": event.get("event_date") or NOW,
+                "event_date": edate,
                 "signal_strength": event.get("signal_strength", 1.0),
                 "details": event.get("details", {}),
                 "created_at": NOW,
@@ -797,6 +840,8 @@ class DemoStore:
         summary_rows = list(self.entities.values())
         return {
             "total_entities": len(summary_rows),
+            "total_ubids": len(summary_rows),
+            "total_normalized_records": len(self.normalized_records),
             "active_count": sum(1 for e in summary_rows if e.get("vitality_status") == "ACTIVE"),
             "dormant_count": sum(1 for e in summary_rows if e.get("vitality_status") == "DORMANT"),
             "closed_count": sum(1 for e in summary_rows if e.get("vitality_status") == "CLOSED"),
@@ -934,6 +979,9 @@ class DemoStore:
     def count_raw_records(self) -> int:
         return len(self.raw_records)
 
+    def count_normalized_records(self) -> int:
+        return len(self.normalized_records)
+
     def count_entities(self) -> int:
         return len(self.entities)
 
@@ -945,6 +993,24 @@ class DemoStore:
 
     def count_pending_reviews(self) -> int:
         return len([row for row in self.review_queue.values() if row.get("status") == "PENDING"])
+
+    def reset(self, seed: bool = False) -> None:
+        self.raw_records = {}
+        self.normalized_records = {}
+        self.entities = {}
+        self.record_links = {}
+        self.entity_matches = {}
+        self.activity_events = []
+        self.review_queue = {}
+        self.audit_log = []
+        self._processing_runs = []
+        self._uploads = {}
+        self._source_files = {}
+        self._id_seq = 1
+        self._match_seq = 1
+        self._audit_seq = 1
+        if seed:
+            self._seed()
 
     def get_active_entity_ids(self, limit: int = 5000) -> list[dict]:
         rows = [entity for entity in self.entities.values() if entity.get("is_active", True)]
@@ -960,6 +1026,8 @@ class DemoStore:
             return [{"ok": 1}]
         if normalized == "select count(*) as n from raw_records":
             return [{"n": self.count_raw_records()}]
+        if normalized == "select count(*) as n from normalized_records":
+            return [{"n": self.count_normalized_records()}]
         if normalized == "select count(*) as n from entities":
             return [{"n": self.count_entities()}]
         if normalized == "select count(*) as n from activity_events":
@@ -996,6 +1064,119 @@ class DemoStore:
         if not link:
             return None
         return self.entities.get(link["ubid"])
+
+
+    def get_review_cases(self, limit: int = 50) -> list[dict]:
+        """Return pending review matches formatted for the UI review queue."""
+        rows = []
+        for match in self.entity_matches.values():
+            if match.get("match_status") not in {"REVIEW", "PENDING"}:
+                continue
+            rec_a = self.normalized_records.get(match.get("record_a_id"), self.raw_records.get(match.get("record_a_id"), {}))
+            rec_b = self.normalized_records.get(match.get("record_b_id"), self.raw_records.get(match.get("record_b_id"), {}))
+            rows.append({
+                "case_id": str(match.get("id", "")),
+                "match_id": str(match.get("id", "")),
+                "confidence": float(match.get("confidence", 0.0)),
+                "match_status": match.get("match_status", "REVIEW"),
+                "name_a": rec_a.get("canonical_name") or rec_a.get("business_name", "—"),
+                "name_b": rec_b.get("canonical_name") or rec_b.get("business_name", "—"),
+                "pan_a": rec_a.get("normalized_pan") or rec_a.get("pan", "—"),
+                "pan_b": rec_b.get("normalized_pan") or rec_b.get("pan", "—"),
+                "dept_a": rec_a.get("department_code", "—"),
+                "dept_b": rec_b.get("department_code", "—"),
+                "match_reason": "Name+PIN similarity",
+                "created_at": match.get("created_at", NOW),
+            })
+        rows.sort(key=lambda r: float(r.get("confidence", 0.0)), reverse=True)
+        return rows[:limit]
+
+    def get_latest_processing_runs(self, limit: int = 20) -> list[dict]:
+        """Return stub processing run history."""
+        runs = getattr(self, "_processing_runs", [])
+        return sorted(runs, key=lambda r: r.get("created_at", NOW), reverse=True)[:limit]
+
+    def create_processing_run(
+        self,
+        run_type: str,
+        triggered_by: str = "system",
+        triggered_by_user: str | None = None,
+        parameters: dict | None = None,
+        parent_run_id: str | None = None,
+    ) -> dict:
+        if not hasattr(self, "_processing_runs"):
+            self._processing_runs = []
+        run_id = _stable_uuid("run", str(len(self._processing_runs)), run_type)
+        row = {
+            "run_id": run_id,
+            "run_type": run_type,
+            "triggered_by": triggered_by,
+            "triggered_by_user": triggered_by_user,
+            "status": "RUNNING",
+            "records_seen": 0,
+            "candidate_edges": 0,
+            "created_at": NOW,
+            "started_at": NOW,
+            "finished_at": None,
+        }
+        self._processing_runs.append(row)
+        return row
+
+    def finish_processing_run(
+        self,
+        run_id: str,
+        status: str,
+        metrics: dict | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        if not hasattr(self, "_processing_runs"):
+            return
+        for run in self._processing_runs:
+            if run.get("run_id") == run_id:
+                run["status"] = status
+                run["finished_at"] = NOW
+                if metrics:
+                    run.update(metrics)
+                break
+
+    def create_upload(self, payload: dict) -> dict:
+        if not hasattr(self, "_uploads"):
+            self._uploads: dict[str, dict] = {}
+        upload_id = _stable_uuid("upload", payload.get("content_sha256", json.dumps(payload, sort_keys=True)))
+        row = {"upload_id": upload_id, **payload}
+        self._uploads[upload_id] = row
+        return row
+
+    def update_upload(self, upload_id: str, **fields) -> None:
+        if hasattr(self, "_uploads") and upload_id in self._uploads:
+            self._uploads[upload_id].update(fields)
+
+    def create_source_file(self, payload: dict) -> dict:
+        if not hasattr(self, "_source_files"):
+            self._source_files: dict[str, dict] = {}
+        sf_id = _stable_uuid("sf", payload.get("source_checksum", json.dumps(payload, sort_keys=True)))
+        row = {"source_file_id": sf_id, **payload}
+        self._source_files[sf_id] = row
+        return row
+
+    def insert_raw_record(self, record: dict) -> dict:
+        """Upsert a raw record ingested from an uploaded file."""
+        rid = _stable_uuid("raw", record.get("record_hash", json.dumps(record, sort_keys=True, default=str)))
+        row = {"raw_record_id": rid, **record}
+        row.setdefault("id", rid)
+        self.raw_records[rid] = row
+        return row
+
+    def insert_normalized_record(self, record: dict) -> dict:
+        """Upsert a normalized record into the normalized store."""
+        nid = _stable_uuid("norm", record.get("record_hash", json.dumps(record, sort_keys=True, default=str)))
+        row = {"normalized_record_id": nid, **record}
+        row["normalized_record_id"] = nid
+        self.normalized_records[nid] = row
+        return row
+
+    def ping(self) -> bool:
+        return True
 
 
 _STORE: DemoStore | None = None

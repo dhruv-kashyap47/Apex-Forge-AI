@@ -25,6 +25,8 @@ def _time_decay(event_date: datetime | str | None, half_life_days: int = 180) ->
             event_date = datetime.fromisoformat(event_date.replace("Z", "+00:00"))
         except ValueError:
             return 0.0
+    if type(event_date).__name__ == "date":
+        event_date = datetime.combine(event_date, datetime.min.time())
     if event_date.tzinfo is None:
         event_date = event_date.replace(tzinfo=timezone.utc)
     days_ago = max((datetime.now(timezone.utc) - event_date).days, 0)

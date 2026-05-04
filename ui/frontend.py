@@ -35,9 +35,10 @@ except ImportError:
 try:
     from ingestion.parser import parse_upload
     from normalization.canonical import normalize_row
-    from validation.schema_mapping import guess_mapping, validate_required
+    from validation.schema_mapping import CRITICAL_UPLOAD_FIELDS, guess_mapping, validate_required
 except ImportError:
     parse_upload = normalize_row = guess_mapping = validate_required = None  # type: ignore
+    CRITICAL_UPLOAD_FIELDS = []  # type: ignore
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,14 +133,15 @@ hr { border-color: var(--border) !important; }
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _q(fn, *args, **kwargs):
-    """Safe query call — returns [] / {} if queries not available."""
+    """Safe query call — returns [] / {} / 0 based on the actual result type."""
     if queries is None:
-        return [] if not kwargs.get("single") else {}
+        return {}
     try:
-        return getattr(queries, fn)(*args, **kwargs)
+        result = getattr(queries, fn)(*args, **kwargs)
+        return result if result is not None else {}
     except Exception as exc:
         st.error(f"DB error ({fn}): {exc}")
-        return [] if not kwargs.get("single") else {}
+        return {}
 
 
 def _badge(status: str) -> str:
@@ -187,9 +189,13 @@ def page_dashboard():
     st.caption("Live business intelligence across department silos")
 
     stats = _q("get_dashboard_stats")
-    if not stats:
+    if not isinstance(stats, dict) or not stats:
         st.info("No data loaded. Upload records first.")
         return
+
+    # Normalise key differences between PG (total_ubids) and demo (total_entities)
+    if "total_entities" not in stats:
+        stats["total_entities"] = stats.get("total_ubids", 0)
 
     kpis = [
         (stats.get("total_entities", 0), "Total UBIDs"),
@@ -961,9 +967,11 @@ def page_upload():
             sel = st.selectbox(field, columns, index=columns.index(cur) if cur in columns else 0, key=f"mp_{field}")
             mapping[field] = None if sel == "(not mapped)" else sel
 
-    missing = validate_required(mapping, ["business_name"]) if validate_required else []
+    required_fields = CRITICAL_UPLOAD_FIELDS or ["business_name", "address_full"]
+    missing = validate_required(mapping, required_fields) if validate_required else []
     if missing:
         st.warning(f"Required fields not mapped: {', '.join(missing)}")
+        st.caption("Critical fields must be mapped before staging can continue.")
 
     if st.button("Stage Upload", type="primary", disabled=bool(missing)):
         with st.spinner("Staging records…"):
@@ -989,21 +997,26 @@ def page_upload():
                     "source_metadata": {"department_code": dept_code, "uploader": uploader},
                     "file_status": "IMPORTED",
                 })
+                staged = 0
                 for idx, (_, row) in enumerate(df.iterrows(), 1):
-                    raw_row, norm_row = normalize_row(row.to_dict(), mapping, dept_code, source_key, idx)
+                    raw_row, _ = normalize_row(row.to_dict(), mapping, dept_code, source_key, idx)
                     raw_row.update({"source_file_id": sf["source_file_id"], "processing_run_id": run["run_id"]})
-                    raw_saved = _q("insert_raw_record", raw_row)
-                    norm_row.update({"raw_record_id": raw_saved["raw_record_id"],
-                                     "processing_run_id": run["run_id"],
-                                     "record_hash": raw_saved["record_hash"]})
-                    _q("insert_normalized_record", norm_row)
+                    if not raw_row.get("business_name") or not raw_row.get("address_full"):
+                        continue
+                    _q("insert_raw_record", raw_row)
+                    staged += 1
 
+                if staged == 0:
+                    _q("update_upload", upload_rec["upload_id"], upload_status="REJECTED",
+                       valid_row_count=0, rejected_row_count=len(df))
+                    _q("finish_processing_run", run["run_id"], "FAILED", error_message="No valid rows were staged")
+                    raise ValueError("No valid rows were staged")
                 _q("update_upload", upload_rec["upload_id"], upload_status="VALIDATED",
-                   valid_row_count=len(df), rejected_row_count=0)
-                _q("finish_processing_run", run["run_id"], "SUCCEEDED", metrics={"ingested": len(df)})
-                _q("log_audit","UPLOAD_STAGED", f"Staged {len(df)} records from {uploaded.name}",
+                   valid_row_count=staged, rejected_row_count=max(len(df) - staged, 0))
+                _q("finish_processing_run", run["run_id"], "SUCCEEDED", metrics={"ingested": staged})
+                _q("log_audit","UPLOAD_STAGED", f"Staged {staged} records from {uploaded.name}",
                    actor=uploader, entity_ubid=str(upload_rec["upload_id"]), run_id=run["run_id"])
-                st.success(f"Staged {len(df):,} records. Run ID: {run['run_id']}")
+                st.success(f"Staged {staged:,} records. Run ID: {run['run_id']}")
                 st.session_state["last_upload_run"] = str(run["run_id"])
             except Exception as e:
                 st.error(f"Upload failed: {e}")
@@ -1026,18 +1039,29 @@ def page_processing():
 
     b1, b2 = st.columns(2)
     with b1:
-        if st.button("Run Matching & UBID Assignment", type="primary"):
+        if st.button("Normalize, Match & Assign UBIDs", type="primary"):
             if run_resolution is None:
                 st.error("Resolution engine not available.")
             else:
                 with st.spinner("Running resolution pipeline…"):
-                    run = _q("create_processing_run","MATCHING", triggered_by="ui")
-                    result = run_resolution(processing_run_id=run["run_id"])
-                    _q("finish_processing_run", run["run_id"], "SUCCEEDED", metrics=result)
-                    _sync_status_events()
-                    if classify_all_entities:
-                        classify_all_entities()
-                    st.success(f"Done: {result}")
+                    run = None
+                    try:
+                        run = _q("create_processing_run","PIPELINE", triggered_by="ui")
+                        norm_result = _q("normalize_all_raw_records", processing_run_id=run["run_id"])
+                        normalized_count = int(norm_result.get("normalized_count", 0) if isinstance(norm_result, dict) else 0)
+                        if normalized_count <= 0:
+                            raise ValueError("No normalized data available")
+                        result = run_resolution(processing_run_id=run["run_id"])
+                        merged = {**(norm_result if isinstance(norm_result, dict) else {}), **result}
+                        _q("finish_processing_run", run["run_id"], "SUCCEEDED", metrics=merged)
+                        _sync_status_events()
+                        if classify_all_entities:
+                            classify_all_entities()
+                        st.success(f"Done: {merged}")
+                    except Exception as exc:
+                        if isinstance(run, dict) and run.get("run_id"):
+                            _q("finish_processing_run", run["run_id"], "FAILED", error_message=str(exc))
+                        st.warning(str(exc))
     with b2:
         if st.button("Refresh Status Only"):
             if classify_all_entities is None:
@@ -1046,6 +1070,14 @@ def page_processing():
                 with st.spinner("Refreshing…"):
                     r = classify_all_entities()
                     st.success(str(r))
+
+        if queries and queries.is_demo_mode() and st.button("Reset Demo Store"):
+            try:
+                _q("reset_demo_store")
+                st.success("Demo store reset.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
 
     st.markdown(_sec("LATEST RUNS"), unsafe_allow_html=True)
     runs = _q("get_latest_processing_runs", 10)
@@ -1128,4 +1160,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()

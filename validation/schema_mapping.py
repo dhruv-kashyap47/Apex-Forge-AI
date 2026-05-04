@@ -8,12 +8,23 @@ ALIASES = {
     "district": {"district", "dist"},
     "state": {"state", "province"},
     "city": {"city", "town"},
-    "address_full": {"address", "full_address", "registered_address", "location"},
+    "address_full": {"address_full", "address", "full_address", "registered_address", "location", "address_line1"},
     "activity_date": {"activity_date", "last_activity_date", "event_date"},
     "registration_date": {"registration_date", "reg_date", "incorporation_date"},
     "source_status": {"status", "source_status", "record_status"},
     "sector": {"sector", "industry", "line_of_business"},
 }
+
+CRITICAL_UPLOAD_FIELDS = [
+    "business_name",
+    "pan",
+    "gstin",
+    "pin_code",
+    "city",
+    "state",
+    "address_full",
+    "activity_date",
+]
 
 
 def guess_mapping(columns: list[str]) -> dict[str, str | None]:

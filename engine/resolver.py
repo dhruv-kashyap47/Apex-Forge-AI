@@ -281,7 +281,10 @@ def _create_cluster_and_ubid(members: list[dict], seed_run_id: str | None) -> st
 def run_resolution(records: list[dict] | None = None, pin_code: str | None = None, processing_run_id: str | None = None) -> dict[str, Any]:
     if records is None:
         records = queries.get_records_for_blocking(pin_code=pin_code)
+    if len(records) == 0:
+        raise ValueError("No normalized data available")
     if len(records) < 2:
+        _create_cluster_and_ubid([records[0]], processing_run_id)
         return {"total_records": len(records), "total_pairs": 0, "auto_linked": 0, "review": 0, "rejected": 0}
 
     pairs = get_candidate_pairs(records)
@@ -347,6 +350,12 @@ def run_resolution(records: list[dict] | None = None, pin_code: str | None = Non
             clusters.setdefault(root, []).append(by_id[rid])
         for members in clusters.values():
             _create_cluster_and_ubid(members, processing_run_id)
+
+    remaining_records = queries.get_unlinked_records()
+    for record in remaining_records:
+        if not record.get("normalized_record_id"):
+            continue
+        _create_cluster_and_ubid([record], processing_run_id)
     auto_linked = sum(1 for row in scored if row["decision_state"] == "AUTO_MERGED")
     review = sum(1 for row in scored if row["decision_state"] == "PENDING")
     rejected = sum(1 for row in scored if row["decision_state"] == "REJECTED")

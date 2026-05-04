@@ -6,6 +6,8 @@ from hashlib import sha256
 from typing import Any
 import uuid
 
+from normalization.canonical import normalize_row, validate_raw_source_row
+
 # ---------------------------------------------------------------------------
 # Demo-mode detection: use in-memory store when USE_DEMO_STORE=true or
 # when PostgreSQL driver (psycopg) is not installed.
@@ -107,6 +109,8 @@ def ping() -> bool:
 # ---------------------------------------------------------------------------
 
 def create_processing_run(run_type: str, triggered_by: str = "system", triggered_by_user: str | None = None, parameters: dict | None = None, parent_run_id: str | None = None) -> dict:
+    if _DEMO_MODE:
+        return _get_store().create_processing_run(run_type, triggered_by, triggered_by_user, parameters, parent_run_id)
     row = execute_one(
         """
         INSERT INTO processing_runs (run_type, triggered_by, triggered_by_user, parameters, parent_run_id, status, started_at)
@@ -119,6 +123,9 @@ def create_processing_run(run_type: str, triggered_by: str = "system", triggered
 
 
 def finish_processing_run(run_id: str, status: str, metrics: dict | None = None, error_message: str | None = None) -> None:
+    if _DEMO_MODE:
+        _get_store().finish_processing_run(run_id, status, metrics, error_message)
+        return
     execute(
         """
         UPDATE processing_runs
@@ -133,6 +140,8 @@ def finish_processing_run(run_id: str, status: str, metrics: dict | None = None,
 
 
 def get_latest_processing_runs(limit: int = 20) -> list[dict]:
+    if _DEMO_MODE:
+        return _get_store().get_latest_processing_runs(limit)
     return execute(
         """
         SELECT *
@@ -144,11 +153,19 @@ def get_latest_processing_runs(limit: int = 20) -> list[dict]:
     )
 
 
+def reset_demo_store(seed: bool = False) -> None:
+    if not _DEMO_MODE:
+        raise RuntimeError("reset_demo_store is only available in demo mode")
+    _get_store().reset(seed=seed)
+
+
 # ---------------------------------------------------------------------------
 # Uploads / source files / records
 # ---------------------------------------------------------------------------
 
 def create_upload(payload: dict) -> dict:
+    if _DEMO_MODE:
+        return _get_store().create_upload(payload)
     row = execute_one(
         """
         INSERT INTO uploads (
@@ -178,12 +195,17 @@ def create_upload(payload: dict) -> dict:
 def update_upload(upload_id: str, **fields: Any) -> None:
     if not fields:
         return
+    if _DEMO_MODE:
+        _get_store().update_upload(upload_id, **fields)
+        return
     assignments = ", ".join(f"{key} = %s" for key in fields)
     values = list(fields.values()) + [upload_id]
     execute(f"UPDATE uploads SET {assignments} WHERE upload_id = %s", tuple(values))
 
 
 def create_source_file(payload: dict) -> dict:
+    if _DEMO_MODE:
+        return _get_store().create_source_file(payload)
     row = execute_one(
         """
         INSERT INTO source_files (
@@ -211,6 +233,8 @@ def create_source_file(payload: dict) -> dict:
 
 
 def insert_raw_record(record: dict) -> dict:
+    if _DEMO_MODE:
+        return _get_store().insert_raw_record(record)
     row = execute_one(
         """
         INSERT INTO raw_records (
@@ -274,7 +298,41 @@ def insert_raw_records(records: list[dict]) -> list[dict]:
     return [insert_raw_record(record) for record in records]
 
 
+def get_all_raw_records(limit: int | None = None) -> list[dict]:
+    if _DEMO_MODE:
+        rows = _get_store().get_all_raw_records(limit=limit)
+        return rows
+    sql = "SELECT * FROM raw_records ORDER BY created_at ASC, source_row_number ASC"
+    if limit is not None:
+        sql += " LIMIT %s"
+        return execute(sql, (limit,))
+    return execute(sql)
+
+
+def get_raw_records(run_id: str | None = None, limit: int | None = None) -> list[dict]:
+    return get_all_raw_records(limit=limit)
+
+
+def get_normalized_records(limit: int | None = None) -> list[dict]:
+    if _DEMO_MODE:
+        rows = _get_store().get_normalized_records(limit=limit)
+        return rows
+    sql = "SELECT * FROM normalized_records ORDER BY created_at ASC"
+    if limit is not None:
+        sql += " LIMIT %s"
+        return execute(sql, (limit,))
+    return execute(sql)
+
+
+def count_normalized_records() -> int:
+    if _DEMO_MODE:
+        return int(_get_store().count_normalized_records())
+    return int((execute_one("SELECT COUNT(*) AS n FROM normalized_records") or {}).get("n", 0))
+
+
 def insert_normalized_record(record: dict) -> dict:
+    if _DEMO_MODE:
+        return _get_store().insert_normalized_record(record)
     row = execute_one(
         """
         INSERT INTO normalized_records (
@@ -329,6 +387,60 @@ def insert_normalized_records(records: list[dict]) -> list[dict]:
     return [insert_normalized_record(record) for record in records]
 
 
+def normalize_all_raw_records(processing_run_id: str | None = None) -> dict[str, int]:
+    raw_records = get_all_raw_records()
+    raw_count = len(raw_records)
+    print(f"Raw count: {raw_count}")
+    if raw_count == 0:
+        raise ValueError("No raw records available")
+
+    source_map = {
+        "business_name": "business_name",
+        "pan": "pan",
+        "gstin": "gstin",
+        "pin_code": "pin_code",
+        "district": "district",
+        "state": "state",
+        "city": "city",
+        "address_full": "address_full",
+        "activity_date": "activity_date",
+        "registration_date": "registration_date",
+        "source_status": "source_status",
+        "sector": "sector",
+    }
+
+    inserted = 0
+    skipped = 0
+    for idx, raw in enumerate(raw_records, 1):
+        errors = validate_raw_source_row(raw, source_map)
+        if errors:
+            skipped += 1
+            continue
+        department_code = str(raw.get("department_code") or "UPLOAD")
+        source_key = str(raw.get("source_record_key") or raw.get("source_file_id") or idx)
+        _, norm_row = normalize_row(raw, source_map, department_code, source_key, idx)
+        raw_record_id = raw.get("raw_record_id") or raw.get("id")
+        if not raw_record_id:
+            skipped += 1
+            continue
+        norm_row.update(
+            {
+                "raw_record_id": raw_record_id,
+                "processing_run_id": processing_run_id or raw.get("processing_run_id"),
+                "record_hash": raw.get("record_hash") or norm_row.get("record_hash"),
+            }
+        )
+        saved = insert_normalized_record(norm_row)
+        if saved:
+            inserted += 1
+
+    print(f"Normalized count: {inserted}")
+    print(f"Skipped count: {skipped}")
+    if inserted == 0:
+        raise ValueError("No normalized data available")
+    return {"raw_count": raw_count, "normalized_count": inserted, "skipped_count": skipped}
+
+
 def get_raw_record(raw_record_id: str) -> dict | None:
     return execute_one("SELECT * FROM raw_records WHERE raw_record_id = %s", (raw_record_id,))
 
@@ -338,6 +450,9 @@ def get_normalized_record(normalized_record_id: str) -> dict | None:
 
 
 def get_records_for_blocking(pin_code: str | None = None, limit: int = 100000) -> list[dict]:
+    if _DEMO_MODE:
+        records = _get_store().get_records_for_blocking(pin_code)
+        return records[:limit]
     if pin_code:
         return execute(
             """
@@ -350,7 +465,7 @@ def get_records_for_blocking(pin_code: str | None = None, limit: int = 100000) -
             ORDER BY nr.created_at DESC
             LIMIT %s
             """,
-            (pin_code, limit),
+        (pin_code, limit),
         )
     return execute(
         """
@@ -367,6 +482,7 @@ def get_records_for_blocking(pin_code: str | None = None, limit: int = 100000) -
 
 
 def get_unlinked_records(limit: int = 5000) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_unlinked_records()
     return execute(
         """
         SELECT nr.*, rr.business_name, rr.department_code, rr.pan, rr.gstin, rr.pin_code
@@ -386,6 +502,10 @@ def get_unlinked_records(limit: int = 5000) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def insert_match_edge(payload: dict) -> dict:
+    if _DEMO_MODE:
+        match = {"record_a_id": payload.get("left_normalized_record_id"), "record_b_id": payload.get("right_normalized_record_id"), "confidence": payload.get("confidence", 0), "match_status": "AUTO_LINKED" if payload.get("decision_state") == "AUTO_MERGED" else ("REVIEW" if payload.get("decision_state") in ("PENDING", "IN_REVIEW") else "REJECTED"), "explanation": payload.get("explanation", {})}
+        match_id = _get_store().insert_match(match)
+        return {"match_edge_id": str(match_id), "decision_state": payload.get("decision_state")}
     row = execute_one(
         """
         INSERT INTO match_edges (
@@ -430,6 +550,11 @@ def insert_match_edge(payload: dict) -> dict:
 
 
 def enqueue_review(match_id: str) -> dict:
+    if _DEMO_MODE:
+        try: mid = int(match_id)
+        except: mid = hash(match_id) % 1_000_000
+        _get_store().enqueue_review(mid)
+        return {"match_edge_id": match_id}
     row = execute_one(
         """
         INSERT INTO review_cases (
@@ -460,6 +585,7 @@ def enqueue_review(match_id: str) -> dict:
 
 
 def get_pending_matches(threshold: float = 0.65, limit: int = 50) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_pending_matches(threshold, limit)
     return execute(
         """
         SELECT
@@ -509,6 +635,12 @@ def get_pending_matches(threshold: float = 0.65, limit: int = 50) -> list[dict]:
 
 
 def update_match_decision(match_id: str, decision: str, reviewer: str, justification: str, review_case_id: str | None = None) -> None:
+    if _DEMO_MODE:
+        state = {"MERGED": "MERGED", "APPROVE": "MERGED", "SPLIT": "REJECTED", "REJECT": "REJECTED"}.get(decision.upper(), "REVIEW")
+        try: mid = int(match_id)
+        except: mid = hash(match_id) % 1_000_000
+        _get_store().update_match_decision(mid, state, reviewer, justification)
+        return
     decision_upper = decision.upper()
     mapping = {
         "MERGED": ("APPROVED", "APPROVED"),
@@ -573,6 +705,7 @@ def update_match_decision(match_id: str, decision: str, reviewer: str, justifica
 
 
 def create_cluster(payload: dict) -> dict:
+    if _DEMO_MODE: return {"cluster_id": "demo-cluster-" + str(uuid.uuid4())[:8]}
     row = execute_one(
         """
         INSERT INTO entity_clusters (
@@ -607,6 +740,7 @@ def create_cluster(payload: dict) -> dict:
 
 
 def create_cluster_member(payload: dict) -> dict:
+    if _DEMO_MODE: return payload
     row = execute_one(
         """
         INSERT INTO cluster_members (
@@ -635,6 +769,10 @@ def create_cluster_member(payload: dict) -> dict:
 
 
 def create_ubid(payload: dict) -> dict:
+    if _DEMO_MODE:
+        import uuid
+        ubid = _get_store().create_entity({"canonical_name": payload.get("canonical_name") or "", "pan": payload.get("normalized_pan"), "gstin": payload.get("normalized_gstin"), "pin_code": payload.get("normalized_pin"), "sector": payload.get("summary", {}).get("sector"), "departments": payload.get("summary", {}).get("departments", []), "record_count": payload.get("record_count", 0), "confidence_score": 0.95, "vitality_status": "UNKNOWN", "vitality_score": 0.0, "pulse_score": 0})
+        return {"ubid_id": ubid}
     row = execute_one(
         """
         INSERT INTO ubids (
@@ -674,6 +812,9 @@ def create_ubid(payload: dict) -> dict:
 
 
 def link_record_to_ubid(ubid_id: str, normalized_record_id: str, confidence: float, linked_by: str = "system", match_edge_id: str | None = None, cluster_id: str | None = None) -> dict:
+    if _DEMO_MODE:
+        _get_store().link_record_to_entity(ubid_id, normalized_record_id, confidence, linked_by)
+        return {}
     if cluster_id is None:
         cluster = execute_one("SELECT cluster_id FROM ubids WHERE ubid_id::text = %s", (ubid_id,))
         cluster_id = cluster.get("cluster_id") if cluster else None
@@ -716,6 +857,9 @@ def link_record_to_ubid(ubid_id: str, normalized_record_id: str, confidence: flo
 
 
 def update_entity_vitality(ubid: str, status: str, score: float, pulse: int, record_override: bool = True) -> None:
+    if _DEMO_MODE:
+        _get_store().update_entity_vitality(ubid, status, score, pulse)
+        return
     execute(
         """
         UPDATE ubids
@@ -744,6 +888,7 @@ def update_entity_vitality(ubid: str, status: str, score: float, pulse: int, rec
 
 
 def get_entity(ubid: str) -> dict | None:
+    if _DEMO_MODE: return _get_store().get_entity(ubid)
     row = execute_one(
         """
         SELECT
@@ -768,6 +913,7 @@ def get_entity(ubid: str) -> dict | None:
 
 
 def search_entities(query: str, pin_code: str | None = None, vitality: str | None = None, limit: int = 50) -> list[dict]:
+    if _DEMO_MODE: return _get_store().search_entities(query, pin_code, vitality, limit)
     like = f"%{query.strip()}%" if query else None
     rows = execute(
         """
@@ -791,6 +937,7 @@ def search_entities(query: str, pin_code: str | None = None, vitality: str | Non
 
 
 def get_entity_records(ubid: str) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_entity_records(ubid)
     return execute(
         """
         SELECT
@@ -835,6 +982,7 @@ def get_entity_records(ubid: str) -> list[dict]:
 
 
 def get_entity_events(ubid: str) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_entity_events(ubid)
     return execute(
         """
         SELECT *
@@ -871,6 +1019,9 @@ def get_vitality_signals(ubid: str) -> dict:
 
 
 def upsert_status_event(payload: dict) -> dict:
+    if _DEMO_MODE:
+        _get_store().insert_event({"ubid": payload.get("ubid_id"), "raw_record_id": payload.get("raw_record_id"), "department_code": payload.get("event_source"), "event_type": payload.get("event_type"), "event_date": payload.get("event_date"), "signal_strength": payload.get("activity_weight", 1.0), "details": payload.get("details", {})})
+        return {}
     existing = execute_one(
         """
         SELECT status_event_id
@@ -904,26 +1055,36 @@ def upsert_status_event(payload: dict) -> dict:
 
 
 def count_raw_records() -> int:
+    if _DEMO_MODE:
+        return int(_get_store().count_raw_records())
     return int((execute_one("SELECT COUNT(*) AS n FROM raw_records") or {}).get("n", 0))
 
 
 def count_entities() -> int:
+    if _DEMO_MODE:
+        return int(_get_store().count_entities())
     return int((execute_one("SELECT COUNT(*) AS n FROM ubids") or {}).get("n", 0))
 
 
 def count_activity_events() -> int:
+    if _DEMO_MODE:
+        return int(_get_store().count_activity_events())
     return int((execute_one("SELECT COUNT(*) AS n FROM status_events") or {}).get("n", 0))
 
 
 def count_audit_log() -> int:
+    if _DEMO_MODE: return _get_store().count_audit_log()
     return int((execute_one("SELECT COUNT(*) AS n FROM audit_logs") or {}).get("n", 0))
 
 
 def count_pending_reviews() -> int:
+    if _DEMO_MODE:
+        return int(_get_store().count_pending_reviews())
     return int((execute_one("SELECT COUNT(*) AS n FROM review_cases WHERE case_status IN ('OPEN','IN_REVIEW')") or {}).get("n", 0))
 
 
 def get_dashboard_stats() -> dict:
+    if _DEMO_MODE: return _get_store().get_dashboard_stats()
     base = execute_one("SELECT * FROM v_dashboard_summary") or {}
     statuses = execute_one(
         """
@@ -942,6 +1103,8 @@ def get_dashboard_stats() -> dict:
         **statuses,
         "pending_reviews": count_pending_reviews(),
         "total_raw_records": count_raw_records(),
+        "total_normalized_records": count_normalized_records(),
+        "total_ubids": count_entities(),
         "total_audit_events": count_audit_log(),
     }
     merged["total_entities"] = merged.get("total_ubids", 0)
@@ -950,6 +1113,7 @@ def get_dashboard_stats() -> dict:
 
 
 def get_entities_by_sector(limit: int = 20) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_entities_by_sector(limit)
     return execute(
         """
         SELECT
@@ -968,6 +1132,7 @@ def get_entities_by_sector(limit: int = 20) -> list[dict]:
 
 
 def get_vitality_by_pin() -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_vitality_by_pin()
     return execute(
         """
         SELECT
@@ -984,6 +1149,7 @@ def get_vitality_by_pin() -> list[dict]:
 
 
 def get_active_entity_ids(limit: int = 5000) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_active_entity_ids(limit)
     return execute(
         """
         SELECT ubid_id AS ubid
@@ -996,6 +1162,7 @@ def get_active_entity_ids(limit: int = 5000) -> list[dict]:
 
 
 def get_all_match_edges(status_filter: list[str] | None = None) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_all_match_edges(status_filter)
     statuses = status_filter or ["AUTO_MERGED", "IN_REVIEW", "APPROVED"]
     return execute(
         """
@@ -1033,6 +1200,7 @@ def get_all_match_edges(status_filter: list[str] | None = None) -> list[dict]:
 
 
 def get_match_stats() -> dict:
+    if _DEMO_MODE: return _get_store().get_match_stats()
     row = execute_one(
         """
         SELECT
@@ -1067,6 +1235,7 @@ def get_graph_clusters_cte(seed_record_id: str) -> list[dict]:
 
 
 def get_review_cases(limit: int = 50) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_review_cases(limit)
     return execute(
         """
         SELECT *
@@ -1083,6 +1252,7 @@ def get_review_case(review_case_id: str) -> dict | None:
 
 
 def get_audit_trail(entity_ubid: str | None = None, limit: int = 100) -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_audit_trail(entity_ubid, limit)
     if entity_ubid:
         return execute(
             """
@@ -1174,6 +1344,7 @@ def log_audit(
 
 
 def run_structured_query(params: dict) -> list[dict]:
+    if _DEMO_MODE: return _get_store().run_structured_query(params)
     sql = """
         SELECT *
         FROM v_ubid_registry
@@ -1211,6 +1382,7 @@ def run_structured_query(params: dict) -> list[dict]:
 
 
 def get_learning_labels() -> list[dict]:
+    if _DEMO_MODE: return _get_store().get_learning_labels()
     return execute(
         """
         SELECT
@@ -1231,6 +1403,7 @@ def get_learning_labels() -> list[dict]:
 
 
 def get_threshold_stats() -> dict:
+    if _DEMO_MODE: return _get_store().get_threshold_stats()
     return execute_one(
         """
         SELECT
@@ -1332,10 +1505,6 @@ def reject_match(case_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Demo Store Routing
+# Demo Store Routing — intentionally left empty.
+# Each function above already routes via `if _DEMO_MODE` internally.
 # ---------------------------------------------------------------------------
-if _DEMO_MODE:
-    store = _get_store()
-    for name in dir(store):
-        if not name.startswith('_') and callable(getattr(store, name)):
-            globals()[name] = getattr(store, name)

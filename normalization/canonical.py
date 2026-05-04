@@ -54,6 +54,39 @@ def to_date(value: Any) -> date | None:
             return None
 
 
+def _has_value(value: Any) -> bool:
+    return str(value or "").strip() != ""
+
+
+def validate_raw_source_row(row: dict[str, Any], source_map: dict[str, str | None]) -> list[str]:
+    errors: list[str] = []
+    business_name = str(row.get(source_map.get("business_name")) or "").strip()
+    if not business_name:
+        errors.append("business_name is required")
+
+    address_full = str(row.get(source_map.get("address_full")) or "").strip()
+    if not address_full:
+        errors.append("address_full is required")
+
+    pin_value = row.get(source_map.get("pin_code")) if source_map.get("pin_code") else None
+    if _has_value(pin_value):
+        pin = normalize_pin(pin_value)
+        if not pin:
+            errors.append("pin_code must contain exactly 6 digits")
+
+    for field in ("activity_date", "registration_date"):
+        source_field = source_map.get(field)
+        if not source_field:
+            continue
+        value = row.get(source_field)
+        if not _has_value(value):
+            continue
+        if to_date(value) is None:
+            errors.append(f"{field} must be ISO format YYYY-MM-DD")
+
+    return errors
+
+
 def normalize_row(row: dict[str, Any], source_map: dict[str, str | None], department_code: str, source_key: str, row_number: int) -> tuple[dict, dict]:
     raw_payload = dict(row)
     business_name = str(row.get(source_map.get("business_name")) or "").strip()
