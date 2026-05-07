@@ -1,5 +1,3 @@
-import sys
-
 content = open('db/queries.py', 'r', encoding='utf-8').read()
 old_str = '''def upsert_status_event(payload: dict) -> dict:
     if _DEMO_MODE:'''

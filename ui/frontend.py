@@ -243,7 +243,7 @@ def page_dashboard():
                                           legend=dict(font=dict(size=11), bgcolor="rgba(0,0,0,0)"),
                                           annotations=[dict(text=f"<b>{sum(values):,}</b>", x=0.5, y=0.5,
                                                             font_size=16, showarrow=False)]))
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
     with c2:
         st.markdown(_sec("ENTITIES BY SECTOR"), unsafe_allow_html=True)
@@ -255,7 +255,7 @@ def page_dashboard():
             fig.update_layout(**_chart_layout(height=220,
                               xaxis=dict(gridcolor="#e2e8f0"),
                               yaxis=dict(gridcolor="rgba(0,0,0,0)")))
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
 
     with c3:
         st.markdown(_sec("VITALITY BY PIN CODE"), unsafe_allow_html=True)
@@ -274,7 +274,7 @@ def page_dashboard():
             fig.update_layout(barmode="stack", **_chart_layout(height=220,
                               xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="#e2e8f0"),
                               legend=dict(font=dict(size=10), bgcolor="rgba(0,0,0,0)")))
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
 
     c4, c5 = st.columns([1.5, 1])
     with c4:
@@ -317,7 +317,7 @@ def page_dashboard():
                            color_discrete_map={1:"#059669",0:"#dc2626"}, nbins=20, barmode="overlay")
         fig.update_layout(**_chart_layout(height=150, xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="#e2e8f0"),
                           legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10))))
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -427,7 +427,7 @@ def page_entity_explorer():
                     fig.update_layout(**_chart_layout(height=180,
                                                       xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="rgba(0,0,0,0)"),
                                                       legend=dict(orientation="h", yanchor="bottom", y=1, bgcolor="rgba(0,0,0,0)", font=dict(size=10))))
-                    st.plotly_chart(fig, width='stretch')
+                    st.plotly_chart(fig, use_container_width=True)
 
                     if survival_trend:
                         trend = survival_trend(ubid_str)
@@ -441,7 +441,7 @@ def page_entity_explorer():
                             fig2.update_layout(**_chart_layout(height=110,
                                                                xaxis=dict(gridcolor="#e2e8f0"), yaxis=dict(gridcolor="#e2e8f0", range=[0,1.05]),
                                                                title=dict(text="Vitality Signal Over Time", font=dict(size=11, color="#64748b"))))
-                            st.plotly_chart(fig2, width='stretch')
+                            st.plotly_chart(fig2, use_container_width=True)
                 else:
                     st.caption("No activity events.")
 
@@ -616,7 +616,7 @@ def _graph_plotly_fallback(edges):
                       xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                       yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                       legend=dict(bgcolor="rgba(0,0,0,0)")))
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -698,7 +698,7 @@ def page_query():
                 disp = [c for c in ["canonical_name","pan","pin_code","sector","vitality_status","pulse_score","record_count"] if c in df.columns]
                 ddf = df[disp].copy()
                 ddf.columns = ["Business Name","PAN","PIN","Sector","Vitality","Pulse","# Records"][:len(disp)]
-                st.dataframe(ddf, width='stretch', height=320)
+                st.dataframe(ddf, use_container_width=True, height=320)
             with c2:
                 if "vitality_status" in df.columns:
                     vc = df["vitality_status"].value_counts().reset_index()
@@ -707,7 +707,7 @@ def page_query():
                                  color="Status", color_discrete_map={"ACTIVE":"#059669","DORMANT":"#d97706","CLOSED":"#dc2626","UNKNOWN":"#94a3b8"})
                     fig.update_layout(**_chart_layout(height=200, showlegend=True,
                                                       legend=dict(font=dict(size=10), bgcolor="rgba(0,0,0,0)")))
-                    st.plotly_chart(fig, width='stretch')
+                    st.plotly_chart(fig, use_container_width=True)
 
             ec1, ec2 = st.columns(2)
             with ec1:
@@ -880,7 +880,7 @@ def page_audit():
         ddf = df[keep].copy()
         if "confidence" in ddf.columns:
             ddf["confidence"] = ddf["confidence"].apply(lambda x: f"{float(x)*100:.1f}%" if x else "—")
-        st.dataframe(ddf, width='stretch', height=500)
+        st.dataframe(ddf, use_container_width=True, height=500)
         st.download_button("⬇ Export CSV", data=df.to_csv(index=False).encode(), file_name="audit_export.csv", mime="text/csv")
 
 
@@ -931,10 +931,10 @@ def page_export():
         st.download_button("ZIP Bundle", data=buf.getvalue(), file_name="apexforge_exports.zip", mime="application/zip")
 
     tab1, tab2, tab3, tab4 = st.tabs(["Registry","Matches","Reviews","Audit"])
-    with tab1: st.dataframe(registry.head(200), width='stretch')
-    with tab2: st.dataframe(matches.head(200),  width='stretch')
-    with tab3: st.dataframe(reviews.head(200),  width='stretch')
-    with tab4: st.dataframe(audit.head(200),    width='stretch')
+    with tab1: st.dataframe(registry.head(200), use_container_width=True)
+    with tab2: st.dataframe(matches.head(200),  use_container_width=True)
+    with tab3: st.dataframe(reviews.head(200),  use_container_width=True)
+    with tab4: st.dataframe(audit.head(200),    use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -958,7 +958,7 @@ def page_upload():
     st.markdown(f"**{len(df):,}** rows detected")
 
     with st.expander("Preview (first 20 rows)"):
-        st.dataframe(df.head(20), width='stretch')
+        st.dataframe(df.head(20), use_container_width=True)
 
     columns = ["(not mapped)"] + list(df.columns)
     default_map = guess_mapping(list(df.columns)) if guess_mapping else {}
@@ -1120,12 +1120,12 @@ def page_processing():
                         print(f"Pipeline Step 3 - UBIDs created: {ubids_created}")
 
                         # Step 5: Status events
-                        print(f"Pipeline Step 4 - Syncing status events")
+                        print("Pipeline Step 4 - Syncing status events")
                         _sync_status_events()
 
                         # Step 6: Entity classification
                         if classify_all_entities:
-                            print(f"Pipeline Step 5 - Running entity classification")
+                            print("Pipeline Step 5 - Running entity classification")
                             classify_all_entities()
 
                         merged = {**(norm_result if isinstance(norm_result, dict) else {}), **result}

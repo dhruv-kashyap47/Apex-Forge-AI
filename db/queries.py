@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
-import uuid
 
-from normalization.canonical import normalize_row, validate_raw_source_row
+from normalization.canonical import normalize_row
 
 # ---------------------------------------------------------------------------
 # Demo-mode detection: use in-memory store when USE_DEMO_STORE=true or
@@ -35,18 +35,17 @@ _get_store = None
 _demo_store_instance = None
 
 if _DEMO_MODE:
-    from db.demo_store import get_store as _get_store, demo_store as _demo_store_instance
+    from db.demo_store import demo_store as _demo_store_instance
 else:
     try:
         from db.connection import execute as _pg_execute, execute_one as _pg_execute_one, health_check as _pg_health_check, init_schema as _pg_init_schema
     except Exception:
         _DEMO_MODE = True
-        from db.demo_store import get_store as _get_store, demo_store as _demo_store_instance
+        from db.demo_store import demo_store as _demo_store_instance
 
 
 def _get_demo_store():
     """Get demo store singleton - checks Streamlit session_state if available."""
-    global _demo_store_instance
 
     # Try to get from Streamlit session_state for UI consistency
     try:
@@ -526,7 +525,7 @@ def get_records_for_blocking(pin_code: str | None = None, limit: int = 100000) -
             ORDER BY nr.created_at DESC
             LIMIT %s
             """,
-        (pin_code, limit),
+            (pin_code, limit),
         )
     return execute(
         """
@@ -613,7 +612,7 @@ def insert_match_edge(payload: dict) -> dict:
 def enqueue_review(match_id: str) -> dict:
     if _DEMO_MODE:
         try: mid = int(match_id)
-        except: mid = hash(match_id) % 1_000_000
+        except ValueError: mid = hash(match_id) % 1_000_000
         _get_demo_store().enqueue_review(mid)
         return {"match_edge_id": match_id}
     row = execute_one(
@@ -699,7 +698,7 @@ def update_match_decision(match_id: str, decision: str, reviewer: str, justifica
     if _DEMO_MODE:
         state = {"MERGED": "MERGED", "APPROVE": "MERGED", "SPLIT": "REJECTED", "REJECT": "REJECTED"}.get(decision.upper(), "REVIEW")
         try: mid = int(match_id)
-        except: mid = hash(match_id) % 1_000_000
+        except ValueError: mid = hash(match_id) % 1_000_000
         _get_demo_store().update_match_decision(mid, state, reviewer, justification)
         return
     decision_upper = decision.upper()
@@ -831,7 +830,6 @@ def create_cluster_member(payload: dict) -> dict:
 
 def create_ubid(payload: dict) -> dict:
     if _DEMO_MODE:
-        import uuid
         ubid = _get_demo_store().create_entity({"canonical_name": payload.get("canonical_name") or "", "pan": payload.get("normalized_pan"), "gstin": payload.get("normalized_gstin"), "pin_code": payload.get("normalized_pin"), "sector": payload.get("summary", {}).get("sector"), "departments": payload.get("summary", {}).get("departments", []), "record_count": payload.get("record_count", 0), "confidence_score": 0.95, "vitality_status": "UNKNOWN", "vitality_score": 0.0, "pulse_score": 0})
         return {"ubid_id": ubid}
     row = execute_one(

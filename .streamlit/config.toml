@@ -1,4 +1,4 @@
-# GraphVita AI — Streamlit Configuration
+# ApexForge AI — Streamlit Configuration
 [server]
 headless = true
 enableCORS = true

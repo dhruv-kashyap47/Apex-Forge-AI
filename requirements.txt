@@ -13,10 +13,22 @@ pgvector==0.2.5
 # ── Data Processing & ML ──────────────────────
 pandas==2.2.2
 numpy==1.26.4
+sentence-transformers==2.5.1
+scikit-learn==1.4.2
 
 # ── Graph Visualisation ───────────────────────
 pyvis==0.3.2
 plotly==5.22.0
+
+# ── Text Processing & Matching ────────────────
+rapidfuzz==3.6.2
+jellyfish==1.0.3
+unidecode==1.2.0
+Faker==22.6.0
+
+# ── Logging & Progress ───────────────────────
+loguru==0.7.2
+tqdm==4.66.2
 
 # ── Utilities ─────────────────────────────────
 openpyxl==3.1.5

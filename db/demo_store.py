@@ -789,29 +789,17 @@ class DemoStore:
             row = dict(record)
             row.update(link)
             rows.append(row)
-        return sorted(rows, key=lambda r: str(r.get("department_code", "")))
 
-    def insert_event(self, event: dict) -> None:
-        edate = event.get("event_date") or NOW
-        if type(edate).__name__ == "date":
-            from datetime import datetime
-            edate = datetime.combine(edate, datetime.min.time())
-        self.activity_events.append(
-            {
-                "id": len(self.activity_events) + 1,
-                "ubid": event.get("ubid"),
-                "raw_record_id": event.get("raw_record_id"),
-                "department_code": event.get("department_code"),
-                "event_type": event.get("event_type"),
-                "event_date": edate,
-                "signal_strength": event.get("signal_strength", 1.0),
-                "details": event.get("details", {}),
-                "created_at": NOW,
-            }
-        )
-        ubid = event.get("ubid")
-        if ubid and ubid in self.entities:
-            self._classify_entity(ubid)
+
+def reset(self, seed: bool = False) -> None:
+    self.raw_records = {}
+    self.normalized_records = {}
+    self.entities = {}
+    self.record_links = {}
+    self.entity_matches = {}
+    self.activity_events = []
+    if seed:
+        self._seed_demo_data()
 
     def get_entity_events(self, ubid: str) -> list[dict]:
         return sorted([ev for ev in self.activity_events if ev.get("ubid") == ubid], key=lambda ev: ev["event_date"], reverse=True)
@@ -1064,7 +1052,6 @@ class DemoStore:
         if not link:
             return None
         return self.entities.get(link["ubid"])
-
 
     def get_review_cases(self, limit: int = 50) -> list[dict]:
         """Return pending review matches formatted for the UI review queue."""
